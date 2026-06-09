@@ -1,0 +1,195 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fafaf9;
+  --foreground: #1c1917;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-wedding: var(--font-cormorant);
+
+  /* Native Shape Language: "Rounded" */
+  --radius-sm: 4px;
+  --radius-md: 6px;      /* Sidebar Selection & Inline Submenus: 6px */
+  --radius-lg: 8px;      /* Buttons, Inputs, Cards, Default: 8px */
+  --radius-xl: 8px;      /* Force uniform card shape language: 8px */
+  --radius-2xl: 8px;     /* Force uniform card shape language: 8px */
+  --radius-3xl: 8px;     /* Force uniform card shape language: 8px */
+}
+
+/* Admin app uses a fixed light theme (avoids light text on white cards in dark OS mode) */
+html {
+  color-scheme: light;
+  overflow-x: hidden;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+h1, .font-wedding {
+  font-family: var(--font-cormorant), Georgia, serif;
+}
+
+/* Modern high-end sleek scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #292524 transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #292524; /* stone-800 */
+  border-radius: 9999px;
+  border: 1px solid transparent;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #44403c; /* stone-700 */
+}
+
+
+/* Premium Tables Styling */
+table {
+  border-collapse: collapse;
+}
+
+table thead {
+  background-color: #f5f5f4; /* stone-100 highlight */
+  border-bottom: 2px solid #e7e5e4; /* stone-300 */
+}
+
+table thead th {
+  color: #44403c !important; /* stone-700 */
+  font-weight: 600 !important;
+  font-size: 0.75rem !important; /* text-xs */
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important; /* tracking-wider */
+  padding: 0.5rem 0.625rem !important; /* prominent header padding 8px 10px */
+}
+
+table tbody tr {
+  transition: background-color 150ms ease;
+  border-bottom: 1px solid #f5f5f4; /* stone-100 */
+}
+
+table tbody tr:hover {
+  background-color: #fafaf9; /* stone-50 */
+}
+
+table tbody td {
+  padding: 0.3125rem 0.625rem !important; /* highly compact 5px 10px */
+}
+
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* Custom premium modal animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleUp {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes bounceSubtle {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale-up {
+  animation: scaleUp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-bounce-subtle {
+  animation: bounceSubtle 2s infinite ease-in-out;
+}
+
+/* Compact modal rhythm across the app */
+.animate-scale-up {
+  border-radius: 8px !important;
+  padding: 1rem !important;
+}
+
+.animate-scale-up > button[aria-label="Close dialog"] {
+  top: 0.75rem !important;
+  right: 0.75rem !important;
+  border-radius: 6px !important;
+  padding: 0.25rem !important;
+}
+
+.animate-scale-up h3 {
+  margin-bottom: 0.75rem !important;
+  font-size: 1.125rem !important;
+  line-height: 1.5rem !important;
+}
+
+.animate-scale-up .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.75rem !important;
+}
+
+.animate-scale-up .grid.gap-4 {
+  gap: 0.75rem !important;
+}
+
+.animate-scale-up .mt-6 {
+  margin-top: 1rem !important;
+}
+
+.animate-scale-up .mt-5 {
+  margin-top: 0.875rem !important;
+}
+
+.animate-scale-up .mb-6,
+.animate-scale-up .mb-5,
+.animate-scale-up .mb-4 {
+  margin-bottom: 0.75rem !important;
+}
+
+.animate-scale-up .pt-5,
+.animate-scale-up .pt-4 {
+  padding-top: 0.75rem !important;
+}
+
+.animate-scale-up input:not([type="checkbox"]):not([type="radio"]),
+.animate-scale-up select,
+.animate-scale-up textarea {
+  padding-top: 0.5rem !important;
+  padding-bottom: 0.5rem !important;
+}
