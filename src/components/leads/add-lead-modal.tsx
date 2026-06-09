@@ -13,8 +13,11 @@ export function AddLeadModal() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
-    return () => setMounted(false);
+    const timer = setTimeout(() => setMounted(true), 0);
+    return () => {
+      clearTimeout(timer);
+      setMounted(false);
+    };
   }, []);
 
   useEffect(() => {
@@ -32,7 +35,7 @@ export function AddLeadModal() {
     setOpen(false);
   }
 
-  function handleSuccess(leadId: string) {
+  function handleSuccess() {
     reset();
     router.refresh();
   }

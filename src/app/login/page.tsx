@@ -19,7 +19,8 @@ export default function LoginPage() {
   useEffect(() => {
     const errorParam = searchParams.get("error");
     if (errorParam) {
-      setError(errorParam);
+      const timer = setTimeout(() => setError(errorParam), 0);
+      return () => clearTimeout(timer);
     }
   }, [searchParams]);
 

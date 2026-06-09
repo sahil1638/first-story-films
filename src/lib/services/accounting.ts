@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server";
 import { requireManagerOrAdminOrThrow } from "@/lib/auth/require-role";
 import type {
   AccountingAccount,
-  AccountingCategory,
   AccountingEntry,
   RecordStatus,
 } from "@/types/database";
@@ -67,10 +66,6 @@ function normalizeStatus(status?: RecordStatus | "all") {
   return status === "all" || !status ? null : status;
 }
 
-function sanitizeTypeFilter(type?: "income" | "expense" | "both") {
-  if (type === "income" || type === "expense") return type;
-  return null;
-}
 
 function getSummaryValues(entries: Pick<AccountingEntry, "type" | "amount">[]) {
   const totalIncome = entries
@@ -87,26 +82,32 @@ function getSummaryValues(entries: Pick<AccountingEntry, "type" | "amount">[]) {
   };
 }
 
-function buildEntryQuery(filters: EntryFilterParams, query: any) {
+function buildEntryQuery<T extends {
+  eq: (column: string, value: string) => T;
+  ilike: (column: string, pattern: string) => T;
+  gte: (column: string, value: string) => T;
+  lte: (column: string, value: string) => T;
+}>(filters: EntryFilterParams, query: T): T {
+  let q = query;
   if (filters.type && filters.type !== "both") {
-    query = query.eq("type", filters.type);
+    q = q.eq("type", filters.type);
   }
   if (filters.accountId) {
-    query = query.eq("account_id", filters.accountId);
+    q = q.eq("account_id", filters.accountId);
   }
   if (filters.categoryId) {
-    query = query.eq("category_id", filters.categoryId);
+    q = q.eq("category_id", filters.categoryId);
   }
   if (filters.search) {
-    query = query.ilike("remarks", `%${filters.search}%`);
+    q = q.ilike("remarks", `%${filters.search}%`);
   }
   if (filters.dateFrom) {
-    query = query.gte("entry_date", filters.dateFrom);
+    q = q.gte("entry_date", filters.dateFrom);
   }
   if (filters.dateTo) {
-    query = query.lte("entry_date", filters.dateTo);
+    q = q.lte("entry_date", filters.dateTo);
   }
-  return query;
+  return q;
 }
 
 export async function getEntries(filters: EntryFilterParams = {}) {
@@ -130,12 +131,32 @@ export async function getEntries(filters: EntryFilterParams = {}) {
   const { data, count, error } = await query;
   if (error) throw new Error(error.message);
 
-  const entries = (data ?? []).map((row: any) => ({
-    ...row,
-    account_name: row.accounting_accounts?.name ?? "",
-    category_name: row.accounting_categories?.name ?? "",
-    category_type: row.accounting_categories?.type,
-  }));
+  interface DBAccountingEntry {
+    id: string;
+    type: "income" | "expense";
+    account_id: string;
+    category_id: string;
+    amount: number;
+    entry_date: string;
+    remarks: string | null;
+    source: string | null;
+    source_id: string | null;
+    created_by: string | null;
+    created_at: string;
+    updated_at: string;
+    accounting_accounts: { id: string; name: string } | null;
+    accounting_categories: { id: string; name: string; type: "income" | "expense" } | null;
+  }
+
+  const entries = (data ?? []).map((row) => {
+    const r = row as unknown as DBAccountingEntry;
+    return {
+      ...r,
+      account_name: r.accounting_accounts?.name ?? "",
+      category_name: r.accounting_categories?.name ?? "",
+      category_type: r.accounting_categories?.type,
+    };
+  });
 
   return { entries, count: count ?? 0, page: pagination.page, limit: pagination.limit };
 }
@@ -167,9 +188,8 @@ export async function createEntry(payload: {
   if (!entryDate) return { success: false, error: "Date is required" };
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: authData } = await supabase.auth.getUser();
+  const user = authData?.user;
   if (!user) return { success: false, error: "Not authenticated" };
 
   const { data: account } = await supabase
@@ -240,7 +260,7 @@ export async function updateEntry(id: string, payload: {
   remarks?: string | null;
 }) {
   await requireManagerOrAdminOrThrow();
-  const updates: any = {};
+  const updates: Record<string, unknown> = {};
   if (payload.type) {
     if (!["income", "expense"].includes(payload.type)) return { success: false, error: "Invalid entry type" };
     updates.type = payload.type;
@@ -323,7 +343,7 @@ export async function getAccounts(filters: AccountFilterParams = {}) {
 
   if (totalsResponse.error) throw new Error(totalsResponse.error.message);
 
-  const totalsByAccount = (totalsResponse.data ?? []).reduce((acc: Record<string, { total_in: number; total_out: number; count: number }>, entry: any) => {
+  const totalsByAccount = (totalsResponse.data ?? []).reduce((acc: Record<string, { total_in: number; total_out: number; count: number }>, entry: { account_id: string; type: string; amount: number }) => {
     const key = entry.account_id;
     if (!acc[key]) acc[key] = { total_in: 0, total_out: 0, count: 0 };
     if (entry.type === "income") acc[key].total_in += Number(entry.amount);
@@ -359,7 +379,7 @@ export async function getAccountById(id: string) {
     .eq("account_id", id);
   if (entriesResponse.error) throw new Error(entriesResponse.error.message);
   const totals = (entriesResponse.data ?? []).reduce(
-    (acc, entry: any) => {
+    (acc, entry: { type: string; amount: number }) => {
       if (entry.type === "income") acc.total_in += Number(entry.amount);
       if (entry.type === "expense") acc.total_out += Number(entry.amount);
       acc.count += 1;
@@ -389,9 +409,8 @@ export async function createAccount(payload: { name: string; openingBalance: num
   if (!payload.name.trim()) return { success: false, error: "Account name required" };
   if (payload.openingBalance < 0) return { success: false, error: "Opening balance cannot be negative" };
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: authData } = await supabase.auth.getUser();
+  const user = authData?.user;
   if (!user) return { success: false, error: "Not authenticated" };
 
   const { data, error } = await supabase
@@ -423,7 +442,7 @@ export async function updateAccount(
     return { success: false, error: "Opening balance cannot be negative" };
   }
 
-  const updates: any = {};
+  const updates: Record<string, unknown> = {};
   if (payload.name !== undefined) updates.name = payload.name.trim();
   if (payload.openingBalance !== undefined) updates.opening_balance = payload.openingBalance;
   if (payload.status !== undefined) updates.status = payload.status;
@@ -474,9 +493,8 @@ export async function createCategory(payload: {
   if (!payload.name.trim()) return { success: false, error: "Category name required" };
   if (!["income", "expense"].includes(payload.type)) return { success: false, error: "Invalid category type" };
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: authData } = await supabase.auth.getUser();
+  const user = authData?.user;
   if (!user) return { success: false, error: "Not authenticated" };
   const { data, error } = await supabase
     .from("accounting_categories")

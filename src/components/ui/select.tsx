@@ -4,7 +4,7 @@ import { SelectHTMLAttributes, forwardRef } from "react";
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   error?: string;
-  options: { value: string; label: string }[];
+  options: readonly { value: string; label: string }[];
   placeholder?: string;
 }
 

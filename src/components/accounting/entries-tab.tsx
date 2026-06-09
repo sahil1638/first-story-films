@@ -10,7 +10,6 @@ import { Select } from "@/components/ui/select";
 import { Card, CardHeader } from "@/components/ui/card";
 import { addEntry, deleteEntry, updateEntry } from "@/lib/actions/accounting";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Tooltip } from "@/components/ui/tooltip";
 import type { AccountingEntry, AccountingAccount, AccountingCategory } from "@/types/database";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { Pagination } from "@/components/ui/pagination";
@@ -42,7 +41,8 @@ export function EntriesTab({ entries, accounts, categories }: EntriesTabProps) {
   const ITEMS_PER_PAGE = 50;
 
   useEffect(() => {
-    setCurrentPage(1);
+    const timer = setTimeout(() => setCurrentPage(1), 0);
+    return () => clearTimeout(timer);
   }, [
     filterType,
     filterAccount,
@@ -71,8 +71,11 @@ export function EntriesTab({ entries, accounts, categories }: EntriesTabProps) {
   });
 
   useEffect(() => {
-    setMounted(true);
-    return () => setMounted(false);
+    const timer = setTimeout(() => setMounted(true), 0);
+    return () => {
+      clearTimeout(timer);
+      setMounted(false);
+    };
   }, []);
 
   useEffect(() => {

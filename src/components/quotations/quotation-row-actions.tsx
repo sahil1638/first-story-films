@@ -11,8 +11,9 @@ import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { PdfDownloadButton } from "@/components/ui/pdf-download-button";
 import { deleteQuotation, updateQuotationBasic } from "@/lib/actions/quotations";
 import { BUDGET_RANGES, QUOTATION_STATUSES } from "@/lib/constants";
+import type { Quotation, QuotationStatus } from "@/types/database";
 
-export function QuotationRowActions({ quotation }: { quotation: any }) {
+export function QuotationRowActions({ quotation }: { quotation: Quotation }) {
   const router = useRouter();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editConfirmOpen, setEditConfirmOpen] = useState(false);
@@ -36,27 +37,35 @@ export function QuotationRowActions({ quotation }: { quotation: any }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    setMounted(true);
-    return () => setMounted(false);
+    const timer = setTimeout(() => {
+      setMounted(true);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      setMounted(false);
+    };
   }, []);
 
   useEffect(() => {
     if (editConfirmOpen) {
       document.body.style.overflow = "hidden";
       // Sync form values on open
-      setForm({
-        couple_name: quotation.couple_name || "",
-        your_name: quotation.your_name || "",
-        contact_number: quotation.contact_number || "",
-        email: quotation.email || "",
-        event_location: quotation.event_location || "",
-        wedding_date: quotation.wedding_date || "",
-        wedding_venue: quotation.wedding_venue || "",
-        budget_range: quotation.budget_range || "",
-        status: quotation.status || "pending",
-        amount: quotation.amount || 0,
-      });
-      setErrors({});
+      const timer = setTimeout(() => {
+        setForm({
+          couple_name: quotation.couple_name || "",
+          your_name: quotation.your_name || "",
+          contact_number: quotation.contact_number || "",
+          email: quotation.email || "",
+          event_location: quotation.event_location || "",
+          wedding_date: quotation.wedding_date || "",
+          wedding_venue: quotation.wedding_venue || "",
+          budget_range: quotation.budget_range || "",
+          status: quotation.status || "pending",
+          amount: quotation.amount || 0,
+        });
+        setErrors({});
+      }, 0);
+      return () => clearTimeout(timer);
     } else {
       document.body.style.overflow = "";
     }
@@ -241,9 +250,9 @@ export function QuotationRowActions({ quotation }: { quotation: any }) {
                 label="Quotation Status"
                 required
                 placeholder="Select status..."
-                options={QUOTATION_STATUSES as any}
+                options={QUOTATION_STATUSES}
                 value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value })}
+                onChange={(e) => setForm({ ...form, status: e.target.value as QuotationStatus })}
                 error={errors.status}
               />
               <Input

@@ -63,7 +63,7 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (user) {
-    const role = roleFromMetadata(user.user_metadata);
+    const role = roleFromMetadata(user.app_metadata);
     if (!role || !canAccess(role, path)) {
       const url = request.nextUrl.clone();
       url.pathname = "/dashboard";

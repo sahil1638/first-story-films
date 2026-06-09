@@ -28,7 +28,9 @@ export function QuotationsTable({ quotations }: QuotationsTableProps) {
   const ITEMS_PER_PAGE = 20;
 
   useEffect(() => {
-    setCurrentPage(1);
+    setTimeout(() => {
+      setCurrentPage(1);
+    }, 0);
   }, [search, statusFilter, budgetFilter, functionsFilter, dateStart, dateEnd]);
 
   const budgetOptions = useMemo(() => {

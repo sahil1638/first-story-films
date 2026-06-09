@@ -6,10 +6,9 @@ import { requireManagerOrAdmin } from "@/lib/auth/require-role";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Tooltip } from "@/components/ui/tooltip";
-import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   ArrowLeft,
-  CreditCard,
   Heart,
   Mail,
   Phone,

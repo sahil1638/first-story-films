@@ -74,12 +74,7 @@ export default async function QuotationDetailPage({
       selectedServiceIds.add(service.service_id);
     }
   }
-  const selectedDeliverableIds = new Set(selectedDeliverables);
   const selectedServices = (services ?? []).filter((service) => selectedServiceIds.has(service.id));
-  const visibleDeliverables =
-    selectedDeliverableIds.size > 0
-      ? (deliverables ?? []).filter((deliverable) => selectedDeliverableIds.has(deliverable.id))
-      : deliverables ?? [];
   const servicePersons = (quotation.quotation_service_persons ?? []) as {
     service_id: string;
     person_count: number;

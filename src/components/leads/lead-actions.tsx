@@ -16,7 +16,9 @@ export function LeadActions({
   services = [],
   deliverables = [],
 }: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   lead: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   services?: any[];
   deliverables?: { id: string; title: string }[];
 }) {
@@ -35,8 +37,11 @@ export function LeadActions({
   const [amount, setAmount] = useState("0");
 
   useEffect(() => {
-    setMounted(true);
-    return () => setMounted(false);
+    const timer = setTimeout(() => setMounted(true), 0);
+    return () => {
+      clearTimeout(timer);
+      setMounted(false);
+    };
   }, []);
 
   // Find all service IDs that are selected in lead's function days
@@ -79,10 +84,13 @@ export function LeadActions({
       for (const s of leadServices) {
         map[s.id] = 1;
       }
-      setPersonCounts(map);
-      setSelectedDeliverables([]);
-      setDeliverablesOpen(false);
-      setAmount("0");
+      const timer = setTimeout(() => {
+        setPersonCounts(map);
+        setSelectedDeliverables([]);
+        setDeliverablesOpen(false);
+        setAmount("0");
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [convertConfirmOpen, leadServices]);
 
@@ -133,11 +141,13 @@ export function LeadActions({
   const formattedLead = lead
     ? {
         ...lead,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         function_days: (lead.lead_function_days ?? []).map((fd: any) => ({
           day_index: fd.day_index,
           day_date: fd.day_date,
           first_event_id: fd.first_event_id || "",
           second_event_id: fd.second_event_id || "",
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           service_ids: (fd.lead_function_day_services ?? []).map((s: any) => s.service_id),
         })),
       }

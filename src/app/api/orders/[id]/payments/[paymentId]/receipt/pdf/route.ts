@@ -51,9 +51,14 @@ export async function GET(
   if (entries) {
     for (const entry of entries) {
       if (entry.source_id && entry.accounting_accounts) {
-        const account = entry.accounting_accounts as any;
-        if (account.name) {
-          accountMap.set(entry.source_id, account.name);
+        const accounts = entry.accounting_accounts as unknown as { name: string }[] | { name: string } | null;
+        if (Array.isArray(accounts)) {
+          const name = accounts[0]?.name;
+          if (name) {
+            accountMap.set(entry.source_id, name);
+          }
+        } else if (accounts && typeof accounts === "object" && "name" in accounts && accounts.name) {
+          accountMap.set(entry.source_id, accounts.name);
         }
       }
     }

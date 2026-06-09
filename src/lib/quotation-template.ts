@@ -1,10 +1,33 @@
 import { formatDate, formatCurrency } from "@/lib/utils";
+import type { Quotation, Service, Event, Deliverable } from "@/types/database";
+
+type QuotationFunctionDayService = {
+  service_id: string;
+};
+
+type QuotationFunctionDay = {
+  day_index: number;
+  day_date: string;
+  first_event_id: string | null;
+  second_event_id: string | null;
+  quotation_function_day_services?: QuotationFunctionDayService[];
+};
+
+type QuotationServicePerson = {
+  service_id: string;
+  person_count: number;
+};
+
+type QuotationWithRelations = Quotation & {
+  quotation_function_days?: QuotationFunctionDay[];
+  quotation_service_persons?: QuotationServicePerson[];
+};
 
 type QuotationData = {
-  quotation: any;
-  services: any[];
-  events: any[];
-  deliverables: any[];
+  quotation: QuotationWithRelations;
+  services: Service[];
+  events: Event[];
+  deliverables: Deliverable[];
   terms: string;
   settings?: Record<string, string>;
 };
@@ -58,10 +81,10 @@ export function generateQuotationHtml({
 
   for (const day of functionDays) {
     const dayServices = day.quotation_function_day_services ?? [];
-    const hasPhoto = dayServices.some((s: any) =>
+    const hasPhoto = dayServices.some((s) =>
       serviceMap.get(s.service_id)?.toLowerCase().includes("photography")
     );
-    const hasCinema = dayServices.some((s: any) =>
+    const hasCinema = dayServices.some((s) =>
       serviceMap.get(s.service_id)?.toLowerCase().includes("cinematography")
     );
     if (hasPhoto) photographyDays++;
@@ -82,15 +105,11 @@ export function generateQuotationHtml({
     cinematographyDays = functionDays.length || 1;
   }
 
-  const photographyCount = servicePersons.find((sp: any) =>
+  const photographyCount = servicePersons.find((sp) =>
     serviceMap.get(sp.service_id)?.toLowerCase() === "photography"
   )?.person_count ?? (isPhotographySelected ? 2 : 0);
 
-  const candidPhotographyCount = servicePersons.find((sp: any) =>
-    serviceMap.get(sp.service_id)?.toLowerCase().includes("candid")
-  )?.person_count ?? (isPhotographySelected ? 1 : 0);
-
-  const cinematographyCount = servicePersons.find((sp: any) =>
+  const cinematographyCount = servicePersons.find((sp) =>
     serviceMap.get(sp.service_id)?.toLowerCase() === "cinematography"
   )?.person_count ?? (isCinematographySelected ? 2 : 0);
 
@@ -99,7 +118,7 @@ export function generateQuotationHtml({
       serviceMap.get(id)?.toLowerCase().includes("drone")
     ) || quotation.drone_requirement?.toLowerCase() === "yes";
 
-  const droneCount = servicePersons.find((sp: any) =>
+  const droneCount = servicePersons.find((sp) =>
     serviceMap.get(sp.service_id)?.toLowerCase().includes("drone")
   )?.person_count ?? (isDroneSelected ? 1 : 0);
 
@@ -108,7 +127,7 @@ export function generateQuotationHtml({
       serviceMap.get(id)?.toLowerCase().includes("album")
     ) || quotation.album_requirement?.toLowerCase() === "yes";
 
-  const albumDesignCount = servicePersons.find((sp: any) =>
+  const albumDesignCount = servicePersons.find((sp) =>
     serviceMap.get(sp.service_id)?.toLowerCase().includes("album")
   )?.person_count ?? (isAlbumSelected ? 1 : 0);
 
@@ -159,7 +178,6 @@ export function generateQuotationHtml({
   const heroImageUrl1 = `file:///${publicDir}/public/images/landscape1.png`;
   const heroImageUrl2 = `file:///${publicDir}/public/images/landscape2.png`;
   const heroImageUrl3 = `file:///${publicDir}/public/images/landscape3.png`;
-  const heroImageUrl4 = `file:///${publicDir}/public/images/landscape4.png`;
 
   // Dynamically resolved settings values with custom fallbacks
   const companyName = settings.company_name || settings.studio_name || "First Story Films";
@@ -205,11 +223,8 @@ export function generateQuotationHtml({
   const grandTotal = customAmount > 0 ? customAmount : (packageTotal + gst);
   const amountWords = amountInWords(grandTotal);
 
-  const amountPaid = 0; // Quotations do not contain payments
-  const outstandingAmount = grandTotal;
-
   // Static Addon check - since DB has no table, we hide or fetch if present
-  const addonsList: any[] = [];
+  const addonsList: { name: string; qty: number; rate: number; amount: number }[] = [];
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -541,12 +556,12 @@ export function generateQuotationHtml({
           </tr>
         </thead>
         <tbody>
-          ${functionDays.map((day: any) => {
+          ${functionDays.map((day) => {
             const firstEvent = eventMap.get(day.first_event_id ?? "") || "";
             const secondEvent = eventMap.get(day.second_event_id ?? "") || "";
             const eventString = [firstEvent, secondEvent].filter(Boolean).join(" & ") || "Celebration Event";
             const activeServicesList = (day.quotation_function_day_services ?? [])
-              .map((s: any) => serviceMap.get(s.service_id))
+              .map((s) => serviceMap.get(s.service_id))
               .filter(Boolean)
               .join(", ") || "Full Coverage";
 
@@ -595,14 +610,14 @@ export function generateQuotationHtml({
           </tr>
         </thead>
         <tbody>
-          ${services.filter((service: any) => selectedServiceIds.has(service.id)).map((service: any) => {
-            const personCountObj = servicePersons.find((sp: any) => sp.service_id === service.id);
+          ${services.filter((service) => selectedServiceIds.has(service.id)).map((service) => {
+            const personCountObj = servicePersons.find((sp) => sp.service_id === service.id);
             const personCount = personCountObj ? personCountObj.person_count : 2;
             
             let daysUsed = 0;
             for (const day of functionDays) {
               const dayServices = day.quotation_function_day_services ?? [];
-              if (dayServices.some((ds: any) => ds.service_id === service.id)) {
+              if (dayServices.some((ds) => ds.service_id === service.id)) {
                 daysUsed++;
               }
             }
@@ -629,10 +644,10 @@ export function generateQuotationHtml({
 
   <!-- ==================== PAGE 6 — SERVICES & DELIVERABLES ==================== -->
   ${(() => {
-    const activeServices = services.filter((service: any) => selectedServiceIds.has(service.id));
+    const activeServices = services.filter((service) => selectedServiceIds.has(service.id));
     
     // Chunk active services into pages of 4 as requested by the user
-    const serviceChunks: any[][] = [];
+    const serviceChunks: Service[][] = [];
     const chunkSize = 4;
     for (let i = 0; i < activeServices.length; i += chunkSize) {
       serviceChunks.push(activeServices.slice(i, i + chunkSize));
@@ -657,7 +672,7 @@ export function generateQuotationHtml({
       `;
     }
     
-    return serviceChunks.map((chunk: any[], chunkIndex: number) => {
+    return serviceChunks.map((chunk: Service[], chunkIndex: number) => {
       currentPage++;
       return `
         <div class="page">
@@ -668,14 +683,14 @@ export function generateQuotationHtml({
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 24px;">
-              ${chunk.map((service: any, index: number) => {
-                const personCountObj = servicePersons.find((sp: any) => sp.service_id === service.id);
+              ${chunk.map((service: Service, index: number) => {
+                const personCountObj = servicePersons.find((sp) => sp.service_id === service.id);
                 const personCount = personCountObj ? personCountObj.person_count : 2;
                 
                 let daysUsed = 0;
                 for (const day of functionDays) {
                   const dayServices = day.quotation_function_day_services ?? [];
-                  if (dayServices.some((ds: any) => ds.service_id === service.id)) {
+                  if (dayServices.some((ds) => ds.service_id === service.id)) {
                     daysUsed++;
                   }
                 }
@@ -691,7 +706,7 @@ export function generateQuotationHtml({
                   }
                 }
 
-                let serviceDeliverables = [];
+                let serviceDeliverables: Deliverable[] = [];
                 if (service.name.toLowerCase().includes("photography") || service.name.toLowerCase().includes("photo")) {
                   serviceDeliverables = photoDeliverables;
                 } else if (service.name.toLowerCase().includes("cinematography") || service.name.toLowerCase().includes("cinema") || service.name.toLowerCase().includes("video")) {
@@ -725,7 +740,7 @@ export function generateQuotationHtml({
                       <div>
                         <div style="font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: #B68D40; font-weight: 700; margin-bottom: 6px;">Included Deliverables</div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-                          ${serviceDeliverables.map((bullet: any) => `
+                          ${serviceDeliverables.map((bullet: Deliverable) => `
                             <div style="font-size: 11.5px; color: #111111; font-weight: 600; display: flex; align-items: baseline; gap: 6px;">
                               <span style="color: #B68D40;">✦</span>
                               <span>${escapeHtml(bullet.title)}</span>
@@ -768,7 +783,7 @@ export function generateQuotationHtml({
             </tr>
           </thead>
           <tbody>
-            ${addonsList.map((addon: any) => `
+            ${addonsList.map((addon) => `
               <tr>
                 <td style="font-family: 'Cormorant Garamond', serif; font-size: 13.5px; font-weight: 700; color: #111111;">${escapeHtml(addon.name)}</td>
                 <td style="text-align: right;">${addon.qty}</td>
@@ -876,33 +891,7 @@ function renderTerms(terms: string) {
   return html.join("");
 }
 
-function parseMarkdownToHtml(markdown: string): string {
-  if (!markdown) return "";
-  
-  const lines = markdown.split("\n");
-  const htmlLines = lines.map((line) => {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("###")) {
-      return `<h4 style="font-family: 'Cormorant Garamond', serif; font-size: 15px; font-weight: 700; color: #B68D40; margin-top: 15px; margin-bottom: 6px; page-break-after: avoid; page-break-inside: avoid;">${escapeHtml(trimmed.replace(/^###\s*/, ""))}</h4>`;
-    }
-    if (trimmed.startsWith("##")) {
-      return `<h3 style="font-family: 'Cormorant Garamond', serif; font-size: 16px; font-weight: 700; color: #B68D40; margin-top: 18px; margin-bottom: 8px; page-break-after: avoid; page-break-inside: avoid;">${escapeHtml(trimmed.replace(/^##\s*/, ""))}</h3>`;
-    }
-    if (trimmed.startsWith("#")) {
-      return `<h2 style="font-family: 'Cormorant Garamond', serif; font-size: 18px; font-weight: 700; color: #B68D40; margin-top: 20px; margin-bottom: 10px; page-break-after: avoid; page-break-inside: avoid;">${escapeHtml(trimmed.replace(/^#\s*/, ""))}</h2>`;
-    }
-    if (trimmed.startsWith("-") || trimmed.startsWith("*")) {
-      return `<li style="font-family: 'Montserrat', sans-serif; font-size: 12px; line-height: 1.5; color: #111111; font-weight: 600; margin-bottom: 5px; margin-left: 14px; page-break-inside: avoid;">${escapeHtml(trimmed.replace(/^[-*]\s*/, ""))}</li>`;
-    }
-    if (trimmed) {
-      const boldFormatted = trimmed.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-      return `<p style="font-family: 'Montserrat', sans-serif; font-size: 12px; line-height: 1.5; color: #111111; font-weight: 500; margin-bottom: 10px; page-break-inside: avoid; text-align: justify;">${boldFormatted}</p>`;
-    }
-    return "";
-  });
 
-  return htmlLines.join("\n");
-}
 
 function escapeHtml(value: string) {
   if (!value) return "";

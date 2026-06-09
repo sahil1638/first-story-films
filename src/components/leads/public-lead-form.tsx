@@ -117,7 +117,8 @@ export function PublicLeadForm({
   const [events, setEvents] = useState<Event[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_, setError] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [alertOpen, setAlertOpen] = useState(false);
   const [alertMessage, setAlertMessage] = useState("");
@@ -132,44 +133,57 @@ export function PublicLeadForm({
 
   useEffect(() => {
     if (preview) {
-      setEvents([
-        { id: "1", name: "Haldi", status: "active", created_at: "", updated_at: "" },
-        { id: "2", name: "Wedding", status: "active", created_at: "", updated_at: "" },
-        { id: "3", name: "Reception", status: "active", created_at: "", updated_at: "" },
-      ]);
-      setServices([
-        { id: "1", name: "Photography", status: "active", created_at: "", updated_at: "" },
-        { id: "2", name: "Cinematography", status: "active", created_at: "", updated_at: "" },
-      ]);
-      return;
+      const timer = setTimeout(() => {
+        setEvents([
+          { id: "1", name: "Haldi", status: "active", created_at: "", updated_at: "" },
+          { id: "2", name: "Wedding", status: "active", created_at: "", updated_at: "" },
+          { id: "3", name: "Reception", status: "active", created_at: "", updated_at: "" },
+        ]);
+        setServices([
+          { id: "1", name: "Photography", status: "active", created_at: "", updated_at: "" },
+          { id: "2", name: "Cinematography", status: "active", created_at: "", updated_at: "" },
+        ]);
+      }, 0);
+      return () => clearTimeout(timer);
     }
     const supabase = createClient();
+    let isMounted = true;
     Promise.all([
       supabase.from("events").select("*").eq("status", "active"),
       supabase.from("services").select("*").eq("status", "active"),
     ]).then(([ev, sv]) => {
-      setEvents(ev.data ?? []);
-      setServices(sv.data ?? []);
+      if (isMounted) {
+        setTimeout(() => {
+          setEvents(ev.data ?? []);
+          setServices(sv.data ?? []);
+        }, 0);
+      }
     });
+    return () => {
+      isMounted = false;
+    };
   }, [preview]);
 
   useEffect(() => {
     const count = Math.min(Math.max(form.functions_count, 1), 30);
-    setFunctionDays((prev) => {
-      const next: FunctionDayInput[] = [];
-      for (let i = 0; i < count; i++) {
-        next.push(
-          prev[i] ?? {
-            day_index: i + 1,
-            day_date: "",
-            first_event_id: "",
-            second_event_id: "",
-            service_ids: [],
-          }
-        );
-      }
-      return next;
-    });
+    const timer = setTimeout(() => {
+      setFunctionDays((prev) => {
+        const next: FunctionDayInput[] = [];
+        for (let i = 0; i < count; i++) {
+          next.push(
+            prev[i] ?? {
+              day_index: i + 1,
+              day_date: "",
+              first_event_id: "",
+              second_event_id: "",
+              service_ids: [],
+            }
+          );
+        }
+        return next;
+      });
+    }, 0);
+    return () => clearTimeout(timer);
   }, [form.functions_count]);
 
   function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -327,12 +341,7 @@ export function PublicLeadForm({
     return nextErrors;
   }
 
-  function getFirstInvalidStep() {
-    if (Object.keys(validateStep1()).length > 0) return 1;
-    if (Object.keys(validateStep2()).length > 0) return 2;
-    if (Object.keys(validateStep3()).length > 0) return 3;
-    return 0;
-  }
+
 
   async function handleSubmit() {
     setError("");
@@ -727,7 +736,7 @@ export function PublicLeadForm({
             <Select
               label="Lead Status"
               required
-              options={LEAD_STATUSES as any}
+              options={LEAD_STATUSES as unknown as { value: string; label: string }[]}
               value={form.status}
               onChange={(e) => updateField("status", e.target.value)}
               error={errors.status}

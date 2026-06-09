@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardHeader } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { updateProductionJobStatus } from "@/lib/actions/orders";
 import { formatCurrency } from "@/lib/utils";

@@ -18,12 +18,12 @@ export async function addCategory(
   if (!["active", "inactive"].includes(status)) return { success: false, error: "Invalid status" };
 
   const supabase = await createClient();
-  const { data: user } = await supabase.auth.getUser();
-  if (!user.user) return { success: false, error: "Not authenticated" };
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "Not authenticated" };
 
   const { data, error } = await supabase
     .from("accounting_categories")
-    .insert([{ name, type, status, created_by: user.user.id }])
+    .insert([{ name, type, status, created_by: user.id }])
     .select()
     .single();
 
@@ -79,12 +79,12 @@ export async function addAccount(
   if (openingBalance < 0) return { success: false, error: "Opening balance cannot be negative" };
 
   const supabase = await createClient();
-  const { data: user } = await supabase.auth.getUser();
-  if (!user.user) return { success: false, error: "Not authenticated" };
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "Not authenticated" };
 
   const { data, error } = await supabase
     .from("accounting_accounts")
-    .insert([{ name, opening_balance: openingBalance, created_by: user.user.id }])
+    .insert([{ name, opening_balance: openingBalance, created_by: user.id }])
     .select()
     .single();
 
@@ -147,8 +147,8 @@ export async function addEntry(
   if (!categoryId) return { success: false, error: "Category required" };
 
   const supabase = await createClient();
-  const { data: user } = await supabase.auth.getUser();
-  if (!user.user) return { success: false, error: "Not authenticated" };
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "Not authenticated" };
 
   // Validate account is active
   const { data: account } = await supabase
@@ -186,7 +186,7 @@ export async function addEntry(
         amount,
         entry_date: entryDate,
         remarks,
-        created_by: user.user.id,
+        created_by: user.id,
       },
     ])
     .select()

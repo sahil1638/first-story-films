@@ -23,7 +23,9 @@ export function AlertModal({
 
   // Set mounted state on client to prevent server-side document references (SSR safe)
   useEffect(() => {
-    setMounted(true);
+    setTimeout(() => {
+      setMounted(true);
+    }, 0);
     return () => setMounted(false);
   }, []);
 

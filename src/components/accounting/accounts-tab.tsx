@@ -12,25 +12,15 @@ import { Switch } from "@/components/ui/switch";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { addAccount, deleteAccount, updateAccount } from "@/lib/actions/accounting";
 import { formatCurrency } from "@/lib/utils";
-import type { AccountingAccount, AccountingEntry } from "@/types/database";
+import type { AccountingAccount, AccountingEntry, AccountingCategory } from "@/types/database";
 
 interface AccountsTabProps {
   accounts: AccountingAccount[];
   entries: AccountingEntry[];
-  categories?: any[];
+  categories?: AccountingCategory[];
 }
 
-function amountToneClass(value: number) {
-  if (value > 0) return "text-green-600";
-  if (value < 0) return "text-red-600";
-  return "text-stone-600";
-}
 
-function formatSignedCurrency(value: number) {
-  if (value > 0) return `+${formatCurrency(value)}`;
-  if (value < 0) return `-${formatCurrency(Math.abs(value))}`;
-  return formatCurrency(0);
-}
 
 export function AccountsTab({ accounts, entries }: AccountsTabProps) {
   const router = useRouter();
@@ -55,8 +45,11 @@ export function AccountsTab({ accounts, entries }: AccountsTabProps) {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   useEffect(() => {
-    setMounted(true);
-    return () => setMounted(false);
+    const timer = setTimeout(() => setMounted(true), 0);
+    return () => {
+      clearTimeout(timer);
+      setMounted(false);
+    };
   }, []);
 
   useEffect(() => {

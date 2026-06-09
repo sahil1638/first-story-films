@@ -12,6 +12,7 @@ import { BUDGET_RANGES, ORDER_STATUSES } from "@/lib/constants";
 import { calculateOrderBilling, formatCurrency, GST_RATE_PERCENT } from "@/lib/utils";
 import type { InvoiceType } from "@/types/database";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function OrderEditButton({ order }: { order: any }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -32,26 +33,32 @@ export function OrderEditButton({ order }: { order: any }) {
   });
 
   useEffect(() => {
-    setMounted(true);
-    return () => setMounted(false);
+    const timer = setTimeout(() => setMounted(true), 0);
+    return () => {
+      clearTimeout(timer);
+      setMounted(false);
+    };
   }, []);
 
   useEffect(() => {
     if (open) {
       document.body.style.overflow = "hidden";
-      setForm({
-        couple_name: order.couple_name || "",
-        contact_number: order.contact_number || "",
-        email: order.email || "",
-        event_location: order.event_location || "",
-        wedding_date: order.wedding_date || "",
-        wedding_venue: order.wedding_venue || "",
-        budget_range: order.budget_range || "",
-        invoice_type: (order.invoice_type || "non_gst") as InvoiceType,
-        total_amount: order.subtotal_amount ? String(order.subtotal_amount) : (order.total_amount ? String(order.total_amount) : "0"),
-        status: order.status || "pending",
-      });
-      setErrors({});
+      const timer = setTimeout(() => {
+        setForm({
+          couple_name: order.couple_name || "",
+          contact_number: order.contact_number || "",
+          email: order.email || "",
+          event_location: order.event_location || "",
+          wedding_date: order.wedding_date || "",
+          wedding_venue: order.wedding_venue || "",
+          budget_range: order.budget_range || "",
+          invoice_type: (order.invoice_type || "non_gst") as InvoiceType,
+          total_amount: order.subtotal_amount ? String(order.subtotal_amount) : (order.total_amount ? String(order.total_amount) : "0"),
+          status: order.status || "pending",
+        });
+        setErrors({});
+      }, 0);
+      return () => clearTimeout(timer);
     } else {
       document.body.style.overflow = "";
     }
@@ -148,7 +155,16 @@ export function OrderEditButton({ order }: { order: any }) {
               <Input label="Wedding Date" required type="date" value={form.wedding_date} onChange={(e) => setForm({ ...form, wedding_date: e.target.value })} error={errors.wedding_date} />
               <Input label="Wedding Venue (Optional)" value={form.wedding_venue} onChange={(e) => setForm({ ...form, wedding_venue: e.target.value })} error={errors.wedding_venue} />
               <Select label="Budget Range" required placeholder="Select budget..." options={budgetOptions} value={form.budget_range} onChange={(e) => setForm({ ...form, budget_range: e.target.value })} error={errors.budget_range} />
-              <Select label="Order Status" required placeholder="Select status..." options={ORDER_STATUSES as any} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} error={errors.status} />
+              <Select
+                label="Order Status"
+                required
+                placeholder="Select status..."
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                options={ORDER_STATUSES as any}
+                value={form.status}
+                onChange={(e) => setForm({ ...form, status: e.target.value })}
+                error={errors.status}
+              />
               <Select
                 label="Bill Type"
                 required

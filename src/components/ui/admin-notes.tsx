@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -22,8 +22,16 @@ export function AdminNotes({ recordId, table, initialNotes }: AdminNotesProps) {
   const [error, setError] = useState("");
   const [mounted, setMounted] = useState(false);
 
+  const handleCancel = useCallback(() => {
+    setNotes(initialNotes || "");
+    setIsEditing(false);
+    setError("");
+  }, [initialNotes]);
+
   useEffect(() => {
-    setMounted(true);
+    setTimeout(() => {
+      setMounted(true);
+    }, 0);
     return () => setMounted(false);
   }, []);
 
@@ -43,7 +51,7 @@ export function AdminNotes({ recordId, table, initialNotes }: AdminNotesProps) {
       document.body.style.overflow = "";
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isEditing, loading]);
+  }, [isEditing, loading, handleCancel]);
 
   const handleSave = async () => {
     setLoading(true);
@@ -67,12 +75,6 @@ export function AdminNotes({ recordId, table, initialNotes }: AdminNotesProps) {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleCancel = () => {
-    setNotes(initialNotes || "");
-    setIsEditing(false);
-    setError("");
   };
 
   const openEditor = () => {

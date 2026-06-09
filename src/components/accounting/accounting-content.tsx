@@ -19,7 +19,7 @@ export function AccountingContent({
 }: AccountingPageProps) {
   const [activeTab, setActiveTab] = useState<"entries" | "accounts" | "categories">("entries");
 
-  const tabs = [
+  const tabs: { id: "entries" | "accounts" | "categories"; label: string }[] = [
     { id: "entries", label: "Entries" },
     { id: "accounts", label: "Accounts" },
     { id: "categories", label: "Categories" },
@@ -38,7 +38,7 @@ export function AccountingContent({
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id)}
             className={`px-4 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
               activeTab === tab.id
                 ? "border-b-2 border-amber-600 text-amber-600 font-semibold"

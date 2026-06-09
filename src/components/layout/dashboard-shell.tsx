@@ -28,7 +28,8 @@ export function DashboardShell({
   useEffect(() => {
     const collapsed = localStorage.getItem("sidebar_collapsed");
     if (collapsed === "true") {
-      setIsCollapsed(true);
+      const timer = setTimeout(() => setIsCollapsed(true), 0);
+      return () => clearTimeout(timer);
     }
   }, []);
 
@@ -42,7 +43,8 @@ export function DashboardShell({
 
   // Automatically close the mobile sidebar when the route changes (e.g. user clicked a link)
   useEffect(() => {
-    setSidebarOpen(false);
+    const timer = setTimeout(() => setSidebarOpen(false), 0);
+    return () => clearTimeout(timer);
   }, [pathname]);
 
   return (

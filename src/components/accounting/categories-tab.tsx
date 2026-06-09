@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { addCategory, updateCategory, deleteCategory } from "@/lib/actions/accounting";
@@ -53,8 +52,11 @@ export function CategoriesTab({ categories, entries }: CategoriesTabProps) {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   useEffect(() => {
-    setMounted(true);
-    return () => setMounted(false);
+    const timer = setTimeout(() => setMounted(true), 0);
+    return () => {
+      clearTimeout(timer);
+      setMounted(false);
+    };
   }, []);
 
   // Filter categories list based on controls

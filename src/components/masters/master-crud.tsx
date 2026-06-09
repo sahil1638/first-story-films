@@ -5,8 +5,7 @@ import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Card, CardHeader } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Pencil, Trash2, Plus, X, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -41,7 +40,7 @@ export function MasterCrud({
     if (!search.trim()) return items;
     const query = search.toLowerCase().trim();
     return items.filter((item) => {
-      return Object.entries(item).some(([key, val]) => {
+      return Object.values(item).some((val) => {
         if (typeof val === "string") {
           return val.toLowerCase().includes(query);
         }
@@ -64,8 +63,11 @@ export function MasterCrud({
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    setMounted(true);
-    return () => setMounted(false);
+    const timer = setTimeout(() => setMounted(true), 0);
+    return () => {
+      clearTimeout(timer);
+      setMounted(false);
+    };
   }, []);
 
   useEffect(() => {

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { Plus, X, Pencil, Key, Trash2 } from "lucide-react";
-import { Card, CardHeader } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -62,7 +62,9 @@ export function UserManagement({ users }: { users: Profile[] }) {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    setTimeout(() => {
+      setMounted(true);
+    }, 0);
     // Resolve active logged-in user id
     const supabase = createClient();
     supabase.auth.getUser().then(({ data: { user } }) => {

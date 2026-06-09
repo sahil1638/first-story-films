@@ -3,7 +3,6 @@ import {
   CalendarDays,
   FileText,
   IndianRupee,
-  ListChecks,
   MapPin,
   ShoppingBag,
   Users,

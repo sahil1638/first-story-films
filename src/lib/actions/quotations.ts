@@ -313,7 +313,7 @@ export async function updateQuotationBasic(
   await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
   const supabase = await createClient();
 
-  const updatePayload: any = {
+  const updatePayload: Record<string, unknown> = {
     couple_name: data.couple_name,
     your_name: data.your_name,
     contact_number: data.contact_number,
@@ -348,7 +348,7 @@ export async function updateQuotationBasic(
   if (orderFetchError) throw new Error(orderFetchError.message);
 
   if (order) {
-    const orderPayload: any = {
+    const orderPayload: Record<string, unknown> = {
       couple_name: data.couple_name,
       your_name: data.your_name,
       contact_number: data.contact_number,

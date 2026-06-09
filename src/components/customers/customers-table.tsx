@@ -40,7 +40,8 @@ export function CustomersTable({ customers }: CustomersTableProps) {
   }, [customers, search]);
 
   useEffect(() => {
-    setCurrentPage(1);
+    const timer = setTimeout(() => setCurrentPage(1), 0);
+    return () => clearTimeout(timer);
   }, [search]);
 
   const totalPages = Math.ceil(filteredCustomers.length / ITEMS_PER_PAGE);

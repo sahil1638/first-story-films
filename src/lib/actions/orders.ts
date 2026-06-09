@@ -112,6 +112,7 @@ async function upsertOrderAccountingEntry(
 }
 
 export async function updateOrderTotal(orderId: string, totalAmount: number) {
+  await requireManagerOrAdminOrThrow();
   if (!Number.isFinite(totalAmount) || totalAmount < 0) {
     throw new Error("Enter a valid order total");
   }
@@ -144,6 +145,7 @@ export async function updateOrderTotal(orderId: string, totalAmount: number) {
 }
 
 export async function updateOrderStatus(id: string, status: string) {
+  await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
 
   const { data: order, error: fetchError } = await supabase
@@ -174,6 +176,7 @@ export async function updateOrderStatus(id: string, status: string) {
 }
 
 export async function updateOrderAgreementContent(orderId: string, agreementContent: string) {
+  await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
   const { error } = await supabase
     .from("orders")
@@ -192,6 +195,7 @@ export async function allocateCrew(
   orderServiceId: string,
   crewMemberIds: string[]
 ) {
+  await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
   await supabase
     .from("order_service_allocations")
@@ -300,6 +304,7 @@ export async function addPayment(
 }
 
 export async function deletePayment(paymentId: string, orderId: string) {
+  await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
   const { error } = await supabase
     .from("payments")
@@ -328,6 +333,7 @@ export async function updatePayment(
   paymentDate: string,
   notes?: string
 ) {
+  await requireManagerOrAdminOrThrow();
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new Error("Enter a payment amount greater than zero");
   }
@@ -521,6 +527,7 @@ export async function deleteProductionJob(jobId: string, orderId: string) {
 }
 
 export async function deleteOrder(id: string) {
+  await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
 
   // 1. Fetch payments associated with the order
@@ -583,6 +590,7 @@ export async function updateOrderBasic(
     status?: string;
   }
 ) {
+  await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
   const invoiceType = data.invoice_type ?? "non_gst";
   if (!["gst", "non_gst"].includes(invoiceType)) {
@@ -598,7 +606,7 @@ export async function updateOrderBasic(
 
   if (fetchError) throw new Error(fetchError.message);
 
-  const updatePayload: any = {
+  const updatePayload: Record<string, unknown> = {
     couple_name: data.couple_name,
     contact_number: data.contact_number,
     email: data.email || null,
@@ -625,7 +633,7 @@ export async function updateOrderBasic(
   if (error) throw new Error(error.message);
 
   if (orderData?.quotation_id) {
-    const quotationPayload: any = {
+    const quotationPayload: Record<string, unknown> = {
       couple_name: data.couple_name,
       contact_number: data.contact_number,
       email: data.email || null,

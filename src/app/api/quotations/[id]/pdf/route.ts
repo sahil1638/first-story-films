@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/require-role";
 import { generateQuotationHtml } from "@/lib/quotation-template";
 import { compileHtmlToPdf } from "@/lib/pdf-puppeteer";
+import type { Event } from "@/types/database";
 
 type QuotationFunctionDay = {
   day_index: number;
@@ -70,14 +71,12 @@ export async function GET(
       : Promise.resolve({ data: [] }),
   ]);
 
-  const serviceMap = new Map((services ?? []).map((service) => [service.id, service.name]));
-  const eventMap = new Map((events ?? []).map((event) => [event.id, event.name]));
   const terms = quotation.terms_and_conditions?.trim() || settingsMap["terms_and_conditions"] || "No terms configured.";
 
   const htmlContent = generateQuotationHtml({
     quotation,
     services: services ?? [],
-    events: events ?? [],
+    events: (events ?? []) as unknown as Event[],
     deliverables: deliverables ?? [],
     terms,
     settings: settingsMap,

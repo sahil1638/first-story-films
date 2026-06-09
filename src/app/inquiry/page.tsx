@@ -2,6 +2,10 @@ import { PublicLeadForm } from "@/components/leads/public-lead-form";
 
 export const metadata = {
   title: "Wedding Inquiry | First Story Films",
+  description: "Submit your wedding inquiry to First Story Films. Share your wedding dates, venue, events, photography, and cinematography requirements with us.",
+  alternates: {
+    canonical: "/inquiry",
+  },
 };
 
 export default function InquiryPage() {

@@ -9,10 +9,14 @@ import { Select } from "@/components/ui/select";
 import { Check, ChevronDown, Pencil, X } from "lucide-react";
 import { convertQuotationToOrder, updateQuotationStatus, updateQuotationBasic } from "@/lib/actions/quotations";
 import { BUDGET_RANGES, QUOTATION_STATUSES } from "@/lib/constants";
-import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { calculateOrderBilling, formatCurrency, GST_RATE_PERCENT } from "@/lib/utils";
 import type { InvoiceType } from "@/types/database";
 import { QuotationStatusSelect } from "@/components/quotations/quotation-status-select";
+import type { Quotation, Service, QuotationStatus } from "@/types/database";
+
+type QuotationWithRelations = Quotation & {
+  quotation_service_persons?: { service_id: string; person_count: number }[];
+};
 
 export function QuotationActions({
   quotation,
@@ -20,8 +24,8 @@ export function QuotationActions({
   deliverables = [],
   initialDeliverables = [],
 }: {
-  quotation: any;
-  services?: any[];
+  quotation: QuotationWithRelations;
+  services?: Service[];
   deliverables?: { id: string; title: string }[];
   initialDeliverables?: string[];
 }) {
@@ -56,8 +60,13 @@ export function QuotationActions({
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    setMounted(true);
-    return () => setMounted(false);
+    const timer = setTimeout(() => {
+      setMounted(true);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      setMounted(false);
+    };
   }, []);
 
   useEffect(() => {
@@ -74,19 +83,21 @@ export function QuotationActions({
   useEffect(() => {
     if (editConfirmOpen) {
       // Sync form values on open
-      setForm({
-        couple_name: quotation.couple_name || "",
-        your_name: quotation.your_name || "",
-        contact_number: quotation.contact_number || "",
-        email: quotation.email || "",
-        event_location: quotation.event_location || "",
-        wedding_date: quotation.wedding_date || "",
-        wedding_venue: quotation.wedding_venue || "",
-        budget_range: quotation.budget_range || "",
-        status: quotation.status || "pending",
-        amount: quotation.amount || 0,
-      });
-      setErrors({});
+      setTimeout(() => {
+        setForm({
+          couple_name: quotation.couple_name || "",
+          your_name: quotation.your_name || "",
+          contact_number: quotation.contact_number || "",
+          email: quotation.email || "",
+          event_location: quotation.event_location || "",
+          wedding_date: quotation.wedding_date || "",
+          wedding_venue: quotation.wedding_venue || "",
+          budget_range: quotation.budget_range || "",
+          status: quotation.status || "pending",
+          amount: quotation.amount || 0,
+        });
+        setErrors({});
+      }, 0);
     }
   }, [editConfirmOpen, quotation]);
 
@@ -100,10 +111,12 @@ export function QuotationActions({
       for (const sp of existing) {
         map[sp.service_id] = sp.person_count;
       }
-      setPersonCounts(map);
-      setSelectedDeliverables(initialDeliverables);
-      setDeliverablesOpen(false);
-      setTotalAmount(quotation.amount ? String(quotation.amount) : "");
+      setTimeout(() => {
+        setPersonCounts(map);
+        setSelectedDeliverables(initialDeliverables);
+        setDeliverablesOpen(false);
+        setTotalAmount(quotation.amount ? String(quotation.amount) : "");
+      }, 0);
     }
   }, [convertConfirmOpen, services, quotation, initialDeliverables]);
 
@@ -327,9 +340,9 @@ export function QuotationActions({
                 label="Quotation Status"
                 required
                 placeholder="Select status..."
-                options={QUOTATION_STATUSES as any}
+                options={QUOTATION_STATUSES}
                 value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value })}
+                onChange={(e) => setForm({ ...form, status: e.target.value as QuotationStatus })}
                 error={errors.status}
               />
               <Input

@@ -40,7 +40,7 @@ export type PaymentReceiptPdfData = {
 };
 
 export function generatePaymentReceiptHtml(data: PaymentReceiptPdfData): string {
-  const { order, quotation, currentPayment, paymentsHistory } = data;
+  const { order, currentPayment, paymentsHistory } = data;
 
   const brandName = "FIRST STORY FILMS";
   const orderNumber = order.id.slice(0, 8).toUpperCase();
@@ -50,9 +50,6 @@ export function generatePaymentReceiptHtml(data: PaymentReceiptPdfData): string 
   const weddingDateFormatted = order.wedding_date ? formatDate(order.wedding_date) : "-";
   
   const clientName = order.your_name || order.couple_name || "Valued Client";
-  
-  // Total Days Celebration from functions_count
-  const totalDays = quotation?.functions_count || 1;
   
   // Resolve event location/venue details
   const location = order.wedding_venue || order.event_location || "Specified Venue";

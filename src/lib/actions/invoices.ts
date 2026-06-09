@@ -3,12 +3,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { InvoiceType } from "@/types/database";
+import { requireManagerOrAdminOrThrow } from "@/lib/auth/require-role";
 
 export async function createInvoice(
   orderId: string,
   invoiceType: InvoiceType,
   amount: number
 ) {
+  await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
   const {
     data: { user },

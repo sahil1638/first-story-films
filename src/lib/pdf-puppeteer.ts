@@ -1,6 +1,7 @@
 import puppeteer from "puppeteer";
 import fs from "fs/promises";
 import path from "path";
+import os from "os";
 
 /**
  * Compiles a luxury HTML/CSS template to a PDF Buffer using a headless browser (Puppeteer).
@@ -21,7 +22,7 @@ export async function compileHtmlToPdf(htmlContent: string): Promise<Buffer> {
     ],
   });
   
-  const tempPath = path.join(process.cwd(), "public", `temp_quotation_${Date.now()}.html`);
+  const tempPath = path.join(os.tmpdir(), `temp_quotation_${Date.now()}.html`);
   
   try {
     // Write content to a temporary local file so Chrome opens it with a file:/// origin,
@@ -36,7 +37,7 @@ export async function compileHtmlToPdf(htmlContent: string): Promise<Buffer> {
     // Load local file origin in browser
     const fileUrl = `file:///${tempPath.replace(/\\/g, "/")}`;
     await page.goto(fileUrl, {
-      waitUntil: "networkidle2" as any,
+      waitUntil: "networkidle2",
       timeout: 30000,
     });
     

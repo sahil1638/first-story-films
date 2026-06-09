@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useId, useLayoutEffect, useRef, useState } from "react";
+import React, { useId, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
@@ -26,8 +26,11 @@ export function Tooltip({
   const [coords, setCoords] = useState({ left: 0, top: 0 });
   const [mounted, setMounted] = useState(false);
 
-  useLayoutEffect(() => {
-    setMounted(true);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setMounted(true);
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   useLayoutEffect(() => {

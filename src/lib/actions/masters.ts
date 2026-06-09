@@ -39,6 +39,7 @@ export async function deleteMaster(table: TableName, id: string) {
 }
 
 export async function syncAgencyServices(agencyId: string, serviceIds: string[]) {
+  await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
   await supabase.from("agency_services").delete().eq("agency_id", agencyId);
   if (serviceIds.length > 0) {

@@ -44,10 +44,6 @@ export type OrderAgreementPdfData = {
   eventMap: Map<string, string>;
 };
 
-type TeamRow = {
-  service: string;
-  count: number;
-};
 
 const notSpecified = "Not specified";
 
@@ -76,8 +72,6 @@ export function generateOrderAgreementHtml(data: OrderAgreementPdfData): string 
   const remaining = Math.max(0, grandTotal - paidAmount);
   const discount = numberValue(order.discount);
   const paymentProgress = grandTotal > 0 ? Math.min(100, Math.round((paidAmount / grandTotal) * 100)) : 0;
-  const teamRows = buildTeamRows(data);
-  const allCrewCount = teamRows.reduce((sum, row) => sum + row.count, 0);
   const eventsCovered = eventRows(functionDays, eventMap, serviceMap);
   const terms = stringValue(order.agreement_content) || settings.agreement_content || settings.terms_and_conditions || "";
 
@@ -243,17 +237,6 @@ function money(label: string, value: number | string, strong = false, className 
   return `<div class="money ${strong ? "strong" : ""} ${className}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(formatted)}</strong></div>`;
 }
 
-function buildTeamRows(data: OrderAgreementPdfData): TeamRow[] {
-  const serviceCounts = new Map<string, number>();
-
-  for (const orderService of data.order.order_services as PdfOrderService[] | undefined ?? []) {
-    const serviceName = data.serviceMap.get(orderService.service_id) || orderService.service_id;
-    const plannedCount = Math.max(1, numberValue(orderService.person_count));
-    serviceCounts.set(serviceName, (serviceCounts.get(serviceName) ?? 0) + plannedCount);
-  }
-
-  return Array.from(serviceCounts.entries()).map(([service, count]) => ({ service, count }));
-}
 
 function eventRows(days: PdfFunctionDay[], eventMap: Map<string, string>, serviceMap: Map<string, string>) {
   return days.flatMap((day) => {

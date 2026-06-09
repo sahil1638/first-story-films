@@ -241,7 +241,7 @@ export async function updateLead(id: string, input: LeadFormInput) {
   await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
   const supabase = await createClient();
 
-  const updatePayload: any = {
+  const updatePayload: Record<string, unknown> = {
     your_name: input.your_name,
     couple_name: input.couple_name,
     referral_source: input.referral_source,

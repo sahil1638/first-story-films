@@ -52,7 +52,8 @@ export function OrderCrewAllocation({
   const [selectedByService, setSelectedByService] = useState<Record<string, string[]>>(initialSelections);
 
   useEffect(() => {
-    setSelectedByService(initialSelections);
+    const timer = setTimeout(() => setSelectedByService(initialSelections), 0);
+    return () => clearTimeout(timer);
   }, [initialSelections]);
 
   function eligibleForService(serviceId: string) {
