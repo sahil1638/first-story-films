@@ -1,4 +1,4 @@
-import { syncProfileRoleFromMetadata } from "@/lib/auth/sync-profile";
+import { roleFromMetadata } from "@/lib/auth/sync-profile";
 import { canAccess } from "@/lib/auth/roles";
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
@@ -47,10 +47,6 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (user) {
-    await syncProfileRoleFromMetadata(supabase, user.id, user.user_metadata);
-  }
-
   const path = request.nextUrl.pathname;
 
   if (!user && !isPublicRoute(path)) {
@@ -67,14 +63,8 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (user) {
-    const { data: profile, error } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
-    const role = profile?.role;
-    if (!role || error || !canAccess(role, path)) {
+    const role = roleFromMetadata(user.user_metadata);
+    if (!role || !canAccess(role, path)) {
       const url = request.nextUrl.clone();
       url.pathname = "/dashboard";
       return NextResponse.redirect(url);

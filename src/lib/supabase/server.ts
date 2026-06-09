@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { syncProfileRoleFromMetadata } from "@/lib/auth/sync-profile";
+import { roleFromMetadata } from "@/lib/auth/sync-profile";
 import { isPreviewMode, PREVIEW_PROFILE } from "@/lib/preview";
 
 export async function createClient() {
@@ -37,13 +37,24 @@ export async function getProfile() {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  await syncProfileRoleFromMetadata(supabase, user.id, user.user_metadata);
-
   const { data: profile } = await supabase
     .from("profiles")
     .select("*")
     .eq("id", user.id)
     .single();
+
+  if (!profile) return null;
+
+  const metaRole = roleFromMetadata(user.user_metadata);
+  if (metaRole && profile.role !== metaRole) {
+    const { data: updatedProfile } = await supabase
+      .from("profiles")
+      .update({ role: metaRole })
+      .eq("id", user.id)
+      .select()
+      .single();
+    if (updatedProfile) return updatedProfile;
+  }
 
   return profile;
 }
