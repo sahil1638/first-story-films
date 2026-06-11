@@ -320,6 +320,34 @@ export function generateQuotationHtml({
     .editorial-table tr:last-child td {
       border-bottom: none;
     }
+    .schedule-table {
+      table-layout: fixed;
+      margin-bottom: 0;
+    }
+    .schedule-table th {
+      padding: 9px 10px;
+      letter-spacing: 1.1px;
+    }
+    .schedule-table td {
+      padding: 8px 10px;
+      vertical-align: top;
+      font-size: 10.5px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .schedule-event-name {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 13.5px;
+      line-height: 1.2;
+      font-weight: 700;
+      color: #111111;
+    }
+    .schedule-coverage {
+      color: #B68D40;
+      font-size: 10px;
+      line-height: 1.35;
+      font-weight: 700;
+    }
     .payment-schedule-box {
       border: 2px solid #EAE6E1;
       border-radius: 4px;
@@ -503,13 +531,13 @@ export function generateQuotationHtml({
 
   <!-- ==================== PAGE 4 — PROJECT DETAILS ==================== -->
   <div class="page">
-    <div>
-      <div style="display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #EAE6E1; padding-bottom: 12px; margin-bottom: 24px;">
+    <div style="padding-bottom: 24mm;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #EAE6E1; padding-bottom: 10px; margin-bottom: 18px;">
         <h2 style="font-family: 'Cormorant Garamond', serif; font-size: 32px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; color: #111111; margin: 0;">Custom Package</h2>
         <div style="font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #B68D40; font-weight: 700;">Proposal Overview</div>
       </div>
 
-      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 30px;">
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px;">
         <div>
           <div style="font-size: 8.5px; letter-spacing: 1px; text-transform: uppercase; color: #555555; margin-bottom: 4px; font-weight: 700;">Client Names</div>
           <div style="font-family: 'Cormorant Garamond', serif; font-size: 18px; font-weight: 700; color: #111111;">${escapeHtml(coupleName)}</div>
@@ -528,7 +556,7 @@ export function generateQuotationHtml({
         </div>
       </div>
 
-      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 30px; font-size: 12.5px; border-top: 2px solid #EAE6E1; padding-top: 15px;">
+      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 22px; font-size: 12.5px; border-top: 2px solid #EAE6E1; padding-top: 13px;">
         <div>
           <div style="font-size: 8.5px; letter-spacing: 1px; text-transform: uppercase; color: #555555; margin-bottom: 4px; font-weight: 700;">Contact Information</div>
           <div style="font-family: 'Montserrat', sans-serif; font-size: 12px; color: #111111; line-height: 1.6; font-weight: 600;">
@@ -546,7 +574,7 @@ export function generateQuotationHtml({
 
       <h3 style="font-family: 'Cormorant Garamond', serif; font-size: 20px; letter-spacing: 2px; text-transform: uppercase; color: #B68D40; font-weight: 700; margin: 0 0 12px 0;">Event Celebration Schedule</h3>
       
-      <table class="editorial-table" style="margin-bottom: 0;">
+      <table class="editorial-table schedule-table">
         <thead>
           <tr>
             <th style="width: 20%; font-size: 9px;">Date</th>
@@ -560,17 +588,17 @@ export function generateQuotationHtml({
             const firstEvent = eventMap.get(day.first_event_id ?? "") || "";
             const secondEvent = eventMap.get(day.second_event_id ?? "") || "";
             const eventString = [firstEvent, secondEvent].filter(Boolean).join(" & ") || "Celebration Event";
-            const activeServicesList = (day.quotation_function_day_services ?? [])
+            const activeServices = (day.quotation_function_day_services ?? [])
               .map((s) => serviceMap.get(s.service_id))
-              .filter(Boolean)
-              .join(", ") || "Full Coverage";
+              .filter(Boolean) as string[];
+            const activeServicesList = Array.from(new Set(activeServices)).join(", ");
 
             return `
               <tr>
                 <td><strong>${formatDate(day.day_date)}</strong></td>
-                <td style="font-family: 'Cormorant Garamond', serif; font-size: 15px; font-weight: 700; color: #111111;">${escapeHtml(eventString)}</td>
+                <td><span class="schedule-event-name">${escapeHtml(eventString)}</span></td>
                 <td style="font-weight: 600;">${escapeHtml(venue)}</td>
-                <td style="color: #B68D40; font-size: 12px; font-weight: 700;">${escapeHtml(activeServicesList)}</td>
+                <td><span class="schedule-coverage">${escapeHtml(activeServicesList)}</span></td>
               </tr>
             `;
           }).join("")}
@@ -890,8 +918,6 @@ function renderTerms(terms: string) {
   flushList();
   return html.join("");
 }
-
-
 
 function escapeHtml(value: string) {
   if (!value) return "";
