@@ -77,7 +77,11 @@ export async function compileHtmlToPdf(htmlContent: string): Promise<Buffer> {
     ...(executablePath ? { executablePath } : {}),
     args: [
       "--no-sandbox",
-      "--disable-setuid-sandbox"
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-first-run",
+      "--no-zygote",
     ],
   });
   

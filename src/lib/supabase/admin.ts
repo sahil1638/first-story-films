@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createClient } from "@supabase/supabase-js";
 
 /** Server-only client that bypasses RLS (public lead form, etc.) */

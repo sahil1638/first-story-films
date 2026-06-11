@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { checkRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
+import { checkDbRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,11 +20,15 @@ export async function POST(request: NextRequest) {
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
       request.headers.get("x-real-ip") ||
       "unknown";
-    const rate = checkRateLimit(rateLimitKey("login", `${ip}:${email}`), {
-      limit: 5,
-      windowMs: 15 * 60 * 1000,
-    });
-    if (!rate.allowed) {
+    const allowed = await checkDbRateLimit(
+      rateLimitKey("login", `${ip}:${email}`),
+      {
+        maxTokens: 5.0,
+        refillRatePerSec: 5.0 / 900.0,
+        cost: 1.0,
+      }
+    );
+    if (!allowed) {
       return NextResponse.json(
         { error: "Too many login attempts. Please try again later." },
         { status: 429 }

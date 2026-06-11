@@ -1,3 +1,5 @@
+import "server-only";
+
 import { redirect } from "next/navigation";
 import { getProfile } from "@/lib/supabase/server";
 import type { Profile, UserRole } from "@/types/database";
