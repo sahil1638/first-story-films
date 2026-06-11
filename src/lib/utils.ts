@@ -56,3 +56,27 @@ export function computePaymentStatus(
   if (totalAmount > 0 && paidAmount >= totalAmount) return "paid";
   return "partial_paid";
 }
+
+export function getSafeRedirect(urlStr: string | null | undefined, defaultUrl = "/dashboard"): string {
+  if (!urlStr) return defaultUrl;
+  
+  const trimmed = urlStr.trim();
+  
+  // Check if it starts with a single slash and is a relative path
+  if (/^\/[a-zA-Z0-9_.-]+/.test(trimmed) || trimmed === "/") {
+    // Prevent protocol-relative redirects (starting with // or \\)
+    if (!trimmed.startsWith("//") && !trimmed.startsWith("\\")) {
+      try {
+        const testUrl = new URL(trimmed, "http://localhost");
+        if (testUrl.hostname === "localhost") {
+          return trimmed;
+        }
+      } catch {
+        return defaultUrl;
+      }
+    }
+  }
+  
+  return defaultUrl;
+}
+

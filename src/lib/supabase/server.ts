@@ -1,6 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { isPreviewMode, PREVIEW_PROFILE } from "@/lib/preview";
 
 export async function createClient() {
   const cookieStore = await cookies();
@@ -28,7 +27,6 @@ export async function createClient() {
 }
 
 export async function getProfile() {
-  if (isPreviewMode()) return PREVIEW_PROFILE;
 
   const supabase = await createClient();
   const {

@@ -10,14 +10,12 @@ import type { UserRole } from "@/types/database";
 interface DashboardShellProps {
   role: UserRole;
   userName: string;
-  preview: boolean;
   children: React.ReactNode;
 }
 
 export function DashboardShell({
   role,
   userName,
-  preview,
   children,
 }: DashboardShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -98,15 +96,6 @@ export function DashboardShell({
 
         {/* Scrollable Page Body */}
         <main className="print:bg-white flex-1 overflow-y-auto overflow-x-hidden text-stone-900 relative">
-          {preview && (
-            <div className="border-b border-amber-200 bg-amber-100 px-6 py-2 text-center text-sm text-amber-950">
-              Preview mode — UI only, no database. Set{" "}
-              <code className="rounded bg-white px-1">
-                NEXT_PUBLIC_PREVIEW_MODE=false
-              </code>{" "}
-              after Supabase is ready.
-            </div>
-          )}
           {children}
         </main>
       </div>

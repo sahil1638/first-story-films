@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,18 +16,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const ip =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "unknown";
+    const rate = checkRateLimit(rateLimitKey("login", `${ip}:${email}`), {
+      limit: 5,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: "Too many login attempts. Please try again later." },
+        { status: 429 }
+      );
+    }
+
     const supabase = await createClient();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 401 });
+      console.warn("Login failed", { email, message: error.message });
+      return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
     }
 
     revalidatePath("/", "layout");
     return NextResponse.json({ success: true });
   } catch (error) {
+    console.warn("Login request failed", { message: error instanceof Error ? error.message : String(error) });
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Login failed" },
+      { error: "Login failed. Please try again." },
       { status: 400 }
     );
   }

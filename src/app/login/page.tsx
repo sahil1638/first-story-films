@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { APP_NAME } from "@/lib/constants";
 import { Film } from "lucide-react";
+import { getSafeRedirect } from "@/lib/utils";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -44,7 +45,7 @@ export default function LoginPage() {
       setLoading(false);
       return;
     }
-    const redirect = searchParams.get("redirect") || "/dashboard";
+    const redirect = getSafeRedirect(searchParams.get("redirect"), "/dashboard");
     router.push(redirect);
     router.refresh();
   }
@@ -79,20 +80,12 @@ export default function LoginPage() {
             Sign in
           </Button>
         </form>
-        {process.env.NEXT_PUBLIC_PREVIEW_MODE === "true" ? (
-          <p className="mt-4 text-center text-sm">
-            <a href="/dashboard" className="font-medium text-amber-600 hover:underline">
-              Open dashboard (preview mode, no login)
-            </a>
-          </p>
-        ) : (
-          <p className="mt-4 text-center text-xs text-stone-400">
-            Wedding Inquiry Registration: {" "}
-            <a href="/inquiry" className="text-amber-600 hover:underline">
-              Inquiry Form
-            </a>
-          </p>
-        )}
+        <p className="mt-4 text-center text-xs text-stone-400">
+          Wedding Inquiry Registration:{" "}
+          <a href="/inquiry" className="text-amber-600 hover:underline">
+            Inquiry Form
+          </a>
+        </p>
       </Card>
     </div>
   );

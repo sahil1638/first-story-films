@@ -12,14 +12,17 @@ function isAuthApiRoute(path: string) {
 }
 
 function isPublicRoute(path: string) {
-  return path.startsWith("/inquiry") || path === "/" || isAuthRoute(path) || isAuthApiRoute(path);
+  return (
+    path.startsWith("/inquiry") ||
+    path === "/" ||
+    path === "/robots.txt" ||
+    path === "/sitemap.xml" ||
+    isAuthRoute(path) ||
+    isAuthApiRoute(path)
+  );
 }
 
 export async function updateSession(request: NextRequest) {
-  if (process.env.NEXT_PUBLIC_PREVIEW_MODE === "true") {
-    return NextResponse.next({ request });
-  }
-
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
