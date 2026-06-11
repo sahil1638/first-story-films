@@ -7,6 +7,7 @@ import {
   dateStringSchema,
   createUserSchema,
   positiveNumberSchema,
+  updateEntrySchema,
 } from "./schemas";
 import { withSafeError, SafeError } from "./errors";
 import { rateLimitKey, checkRateLimit } from "./rate-limit";
@@ -67,6 +68,32 @@ describe("Zod Security Schemas", () => {
     it("should reject zero or negative numbers", () => {
       expect(positiveNumberSchema.safeParse(0).success).toBe(false);
       expect(positiveNumberSchema.safeParse(-5).success).toBe(false);
+    });
+  });
+
+  describe("Update Entry Schema", () => {
+    it("should accept partial valid updates", () => {
+      const updates = {
+        amount: 250.5,
+        entry_date: "2026-06-11",
+        remarks: "Updated remark",
+      };
+      expect(updateEntrySchema.safeParse({
+        id: "123e4567-e89b-12d3-a456-426614174000",
+        updates
+      }).success).toBe(true);
+    });
+
+    it("should reject negative amounts or invalid dates", () => {
+      expect(updateEntrySchema.safeParse({
+        id: "123e4567-e89b-12d3-a456-426614174000",
+        updates: { amount: -10 }
+      }).success).toBe(false);
+
+      expect(updateEntrySchema.safeParse({
+        id: "123e4567-e89b-12d3-a456-426614174000",
+        updates: { entry_date: "invalid-date" }
+      }).success).toBe(false);
     });
   });
 });

@@ -180,93 +180,27 @@ export async function updateEntry(
     await requireManagerOrAdminOrThrow();
     const supabase = await createClient();
 
-    const { data: existingEntry, error: fetchError } = await supabase
-      .from("accounting_entries")
-      .select("source, source_id")
-      .eq("id", parsed.id)
-      .maybeSingle();
-
-    if (fetchError) throw new Error(fetchError.message);
-    if (!existingEntry) throw new Error("Entry not found");
-
-    let orderIdToRevalidate: string | null = null;
-
-    if (existingEntry.source === "order_payment" && existingEntry.source_id) {
-      const { data: payment } = await supabase
-        .from("payments")
-        .select("id, order_id")
-        .eq("id", existingEntry.source_id)
-        .maybeSingle();
-
-      if (payment?.order_id) {
-        orderIdToRevalidate = payment.order_id;
-
-        if (parsed.updates.amount !== undefined) {
-          const [{ data: order }, { data: payments }] = await Promise.all([
-            supabase.from("orders").select("total_amount").eq("id", payment.order_id).single(),
-            supabase.from("payments").select("id, amount").eq("order_id", payment.order_id),
-          ]);
-
-          const totalAmount = Number(order?.total_amount ?? 0);
-          const paidExcludingCurrent = (payments ?? [])
-            .filter((row) => row.id !== existingEntry.source_id)
-            .reduce((sum, row) => sum + Number(row.amount), 0);
-
-          if (paidExcludingCurrent + parsed.updates.amount > totalAmount) {
-            throw new Error(`Payment cannot exceed remaining amount of ${totalAmount - paidExcludingCurrent}.`);
-          }
-        }
-      }
-    } else if (existingEntry.source === "production_job" && existingEntry.source_id) {
-      const { data: job } = await supabase
-        .from("production_jobs")
-        .select("order_id")
-        .eq("id", existingEntry.source_id)
-        .maybeSingle();
-      if (job?.order_id) orderIdToRevalidate = job.order_id;
-    }
-
-    // Delegate the entry update itself to the service layer
-    const serviceRes = await serviceUpdateEntry(parsed.id, {
-      amount: parsed.updates.amount,
-      entryDate: parsed.updates.entry_date,
-      remarks: parsed.updates.remarks,
+    // Execute transactional cascade update RPC, returning affected metadata
+    const { data, error: updateError } = await supabase.rpc("update_accounting_entry_cascade", {
+      entry_id: parsed.id,
+      new_amount: parsed.updates.amount !== undefined ? parsed.updates.amount : null,
+      new_entry_date: parsed.updates.entry_date !== undefined ? parsed.updates.entry_date : null,
+      new_remarks: parsed.updates.remarks !== undefined ? parsed.updates.remarks : null,
     });
-    if (!serviceRes.success) throw new Error(serviceRes.error || "Failed to update entry");
+    if (updateError) throw new Error(updateError.message);
 
-    if (existingEntry.source === "order_payment" && existingEntry.source_id) {
-      const paymentUpdates: Record<string, unknown> = {};
-      if (parsed.updates.amount !== undefined) paymentUpdates.amount = parsed.updates.amount;
-      if (parsed.updates.entry_date !== undefined) paymentUpdates.payment_date = parsed.updates.entry_date;
-      if (parsed.updates.remarks !== undefined) paymentUpdates.notes = parsed.updates.remarks?.trim() || null;
+    // The RPC returns a single row in an array: { out_order_id, out_source, out_source_id }
+    const row = (data as any)?.[0];
+    const orderId = row?.out_order_id;
+    const source = row?.out_source;
 
-      if (Object.keys(paymentUpdates).length > 0) {
-        const { error: paymentError } = await supabase
-          .from("payments")
-          .update(paymentUpdates)
-          .eq("id", existingEntry.source_id);
-        if (paymentError) throw new Error(paymentError.message);
-      }
-
-      if (orderIdToRevalidate) {
-        const { syncOrderPaymentTotals } = await import("@/lib/actions/orders");
-        await syncOrderPaymentTotals(supabase, orderIdToRevalidate);
-        revalidatePath("/orders");
-        revalidatePath(`/orders/${orderIdToRevalidate}`);
-      }
-    } else if (existingEntry.source === "production_job" && existingEntry.source_id) {
-      if (parsed.updates.amount !== undefined) {
-        const { error: jobError } = await supabase
-          .from("production_jobs")
-          .update({ payable_amount: parsed.updates.amount })
-          .eq("id", existingEntry.source_id);
-        if (jobError) throw new Error(jobError.message);
-      }
-
-      if (orderIdToRevalidate) {
-        revalidatePath("/orders");
-        revalidatePath(`/orders/${orderIdToRevalidate}`);
-      }
+    // Trigger cache revalidation
+    if (source === "order_payment" && orderId) {
+      revalidatePath("/orders");
+      revalidatePath(`/orders/${orderId}`);
+    } else if (source === "production_job" && orderId) {
+      revalidatePath("/orders");
+      revalidatePath(`/orders/${orderId}`);
     }
 
     revalidatePath("/accounting");
@@ -280,54 +214,22 @@ export async function deleteEntry(id: string): Promise<{ success: boolean; error
     await requireManagerOrAdminOrThrow();
     const supabase = await createClient();
 
-    // 1. Fetch the entry first to see if it is linked to a payment or production job
-    const { data: entry, error: fetchError } = await supabase
-      .from("accounting_entries")
-      .select("source, source_id")
-      .eq("id", parsedId)
-      .maybeSingle();
+    // Call the cascade delete RPC, returning affected metadata
+    const { data, error: deleteError } = await supabase.rpc("delete_accounting_entry_cascade", {
+      entry_id: parsedId,
+    });
+    if (deleteError) throw new Error(deleteError.message);
 
-    if (fetchError) throw new Error(fetchError.message);
-    if (!entry) throw new Error("Entry not found");
+    const row = (data as any)?.[0];
+    const orderId = row?.out_order_id;
+    const source = row?.out_source;
 
-    let orderIdToRevalidate: string | null = null;
-
-    if (entry.source === "order_payment" && entry.source_id) {
-      const { data: payment } = await supabase
-        .from("payments")
-        .select("order_id")
-        .eq("id", entry.source_id)
-        .maybeSingle();
-
-      if (payment?.order_id) {
-        orderIdToRevalidate = payment.order_id;
-        await supabase.from("payments").delete().eq("id", entry.source_id);
-      }
-    } else if (entry.source === "production_job" && entry.source_id) {
-      const { data: job } = await supabase
-        .from("production_jobs")
-        .select("order_id")
-        .eq("id", entry.source_id)
-        .maybeSingle();
-
-      if (job?.order_id) {
-        orderIdToRevalidate = job.order_id;
-        await supabase.from("production_jobs").delete().eq("id", entry.source_id);
-      }
-    }
-
-    // 2. Delegate the deletion of the accounting entry itself to the service layer
-    const serviceRes = await serviceDeleteEntry(parsedId);
-    if (!serviceRes.success) throw new Error(serviceRes.error || "Failed to delete entry");
-
-    // 3. If it was linked to an order payment, sync payment totals and revalidate
-    if (entry.source === "order_payment" && orderIdToRevalidate) {
-      const { syncOrderPaymentTotals } = await import("@/lib/actions/orders");
-      await syncOrderPaymentTotals(supabase, orderIdToRevalidate);
+    // Trigger cache revalidation
+    if (source === "order_payment" && orderId) {
       revalidatePath("/orders");
-      revalidatePath(`/orders/${orderIdToRevalidate}`);
-    } else if (entry.source === "production_job" && orderIdToRevalidate) {
-      revalidatePath(`/orders/${orderIdToRevalidate}`);
+      revalidatePath(`/orders/${orderId}`);
+    } else if (source === "production_job" && orderId) {
+      revalidatePath(`/orders/${orderId}`);
     }
 
     revalidatePath("/accounting");
