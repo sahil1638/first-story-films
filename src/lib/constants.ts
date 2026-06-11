@@ -66,12 +66,6 @@ export const ORDER_STATUSES = [
   { value: "complete", label: "Complete" },
 ] as const;
 
-export const JOB_STATUSES = [
-  { value: "pending", label: "Pending" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "done", label: "Done" },
-] as const;
-
 export type UserRole = "admin" | "manager" | "sales";
 
 export const NAV_ITEMS: {
