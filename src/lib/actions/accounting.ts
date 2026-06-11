@@ -4,6 +4,27 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { requireManagerOrAdminOrThrow } from "@/lib/auth/require-role";
 import type { AccountingEntry, AccountingAccount, AccountingCategory } from "@/types/database";
+import {
+  uuidSchema,
+  addCategorySchema,
+  updateCategorySchema,
+  addAccountSchema,
+  updateAccountSchema,
+  addEntrySchema,
+  updateEntrySchema,
+} from "@/lib/security/schemas";
+import { withSafeError } from "@/lib/security/errors";
+import {
+  createCategory as serviceCreateCategory,
+  updateCategory as serviceUpdateCategory,
+  deleteCategory as serviceDeleteCategory,
+  createAccount as serviceCreateAccount,
+  updateAccount as serviceUpdateAccount,
+  deleteAccount as serviceDeleteAccount,
+  createEntry as serviceCreateEntry,
+  updateEntry as serviceUpdateEntry,
+  deleteEntry as serviceDeleteEntry,
+} from "@/lib/services/accounting";
 
 // ============ CATEGORIES ============
 
@@ -12,61 +33,50 @@ export async function addCategory(
   type: "income" | "expense",
   status: string = "active"
 ): Promise<{ success: boolean; error?: string; data?: AccountingCategory }> {
-  await requireManagerOrAdminOrThrow();
-  if (!name.trim()) return { success: false, error: "Category name required" };
-  if (!["income", "expense"].includes(type)) return { success: false, error: "Invalid type" };
-  if (!["active", "inactive"].includes(status)) return { success: false, error: "Invalid status" };
+  return withSafeError(async () => {
+    const parsed = addCategorySchema.parse({ name, type, status });
+    await requireManagerOrAdminOrThrow();
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { success: false, error: "Not authenticated" };
+    const result = await serviceCreateCategory({
+      name: parsed.name,
+      type: parsed.type,
+      status: parsed.status as any,
+    });
 
-  const { data, error } = await supabase
-    .from("accounting_categories")
-    .insert([{ name, type, status, created_by: user.id }])
-    .select()
-    .single();
-
-  if (error) return { success: false, error: error.message };
-  revalidatePath("/accounting");
-  return { success: true, data };
+    if (result.success) {
+      revalidatePath("/accounting");
+    }
+    return result;
+  });
 }
 
 export async function updateCategory(
   id: string,
   updates: { name?: string; status?: string }
 ): Promise<{ success: boolean; error?: string }> {
-  await requireManagerOrAdminOrThrow();
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("accounting_categories")
-    .update(updates)
-    .eq("id", id);
+  return withSafeError(async () => {
+    const parsed = updateCategorySchema.parse({ id, updates });
+    await requireManagerOrAdminOrThrow();
 
-  if (error) return { success: false, error: error.message };
-  revalidatePath("/accounting");
-  return { success: true };
+    const result = await serviceUpdateCategory(parsed.id, parsed.updates as any);
+    if (result.success) {
+      revalidatePath("/accounting");
+    }
+    return result;
+  });
 }
 
 export async function deleteCategory(id: string): Promise<{ success: boolean; error?: string }> {
-  await requireManagerOrAdminOrThrow();
-  const supabase = await createClient();
+  return withSafeError(async () => {
+    const parsedId = uuidSchema.parse(id);
+    await requireManagerOrAdminOrThrow();
 
-  // Check if category is linked to entries
-  const { count } = await supabase
-    .from("accounting_entries")
-    .select("*", { count: "exact" })
-    .eq("category_id", id);
-
-  if (count && count > 0) {
-    return { success: false, error: "Cannot delete category linked to entries" };
-  }
-
-  const { error } = await supabase.from("accounting_categories").delete().eq("id", id);
-
-  if (error) return { success: false, error: error.message };
-  revalidatePath("/accounting");
-  return { success: true };
+    const result = await serviceDeleteCategory(parsedId);
+    if (result.success) {
+      revalidatePath("/accounting");
+    }
+    return result;
+  });
 }
 
 // ============ ACCOUNTS ============
@@ -75,60 +85,49 @@ export async function addAccount(
   name: string,
   openingBalance: number
 ): Promise<{ success: boolean; error?: string; data?: AccountingAccount }> {
-  await requireManagerOrAdminOrThrow();
-  if (!name.trim()) return { success: false, error: "Account name required" };
-  if (openingBalance < 0) return { success: false, error: "Opening balance cannot be negative" };
+  return withSafeError(async () => {
+    const parsed = addAccountSchema.parse({ name, openingBalance });
+    await requireManagerOrAdminOrThrow();
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { success: false, error: "Not authenticated" };
+    const result = await serviceCreateAccount({
+      name: parsed.name,
+      openingBalance: parsed.openingBalance,
+    });
 
-  const { data, error } = await supabase
-    .from("accounting_accounts")
-    .insert([{ name, opening_balance: openingBalance, created_by: user.id }])
-    .select()
-    .single();
-
-  if (error) return { success: false, error: error.message };
-  revalidatePath("/accounting");
-  return { success: true, data };
+    if (result.success) {
+      revalidatePath("/accounting");
+    }
+    return result;
+  });
 }
 
 export async function updateAccount(
   id: string,
   updates: { name?: string; status?: string }
 ): Promise<{ success: boolean; error?: string }> {
-  await requireManagerOrAdminOrThrow();
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("accounting_accounts")
-    .update(updates)
-    .eq("id", id);
+  return withSafeError(async () => {
+    const parsed = updateAccountSchema.parse({ id, updates });
+    await requireManagerOrAdminOrThrow();
 
-  if (error) return { success: false, error: error.message };
-  revalidatePath("/accounting");
-  return { success: true };
+    const result = await serviceUpdateAccount(parsed.id, parsed.updates as any);
+    if (result.success) {
+      revalidatePath("/accounting");
+    }
+    return result;
+  });
 }
 
 export async function deleteAccount(id: string): Promise<{ success: boolean; error?: string }> {
-  await requireManagerOrAdminOrThrow();
-  const supabase = await createClient();
+  return withSafeError(async () => {
+    const parsedId = uuidSchema.parse(id);
+    await requireManagerOrAdminOrThrow();
 
-  // Check if account has entries
-  const { count } = await supabase
-    .from("accounting_entries")
-    .select("*", { count: "exact" })
-    .eq("account_id", id);
-
-  if (count && count > 0) {
-    return { success: false, error: "Cannot delete account with existing entries" };
-  }
-
-  const { error } = await supabase.from("accounting_accounts").delete().eq("id", id);
-
-  if (error) return { success: false, error: error.message };
-  revalidatePath("/accounting");
-  return { success: true };
+    const result = await serviceDeleteAccount(parsedId);
+    if (result.success) {
+      revalidatePath("/accounting");
+    }
+    return result;
+  });
 }
 
 // ============ ENTRIES ============
@@ -141,61 +140,31 @@ export async function addEntry(
   entryDate: string,
   remarks?: string
 ): Promise<{ success: boolean; error?: string; data?: AccountingEntry }> {
-  await requireManagerOrAdminOrThrow();
-  if (!["income", "expense"].includes(type)) return { success: false, error: "Invalid type" };
-  if (amount <= 0) return { success: false, error: "Amount must be positive" };
-  if (!accountId) return { success: false, error: "Account required" };
-  if (!categoryId) return { success: false, error: "Category required" };
+  return withSafeError(async () => {
+    const parsed = addEntrySchema.parse({
+      type,
+      accountId,
+      categoryId,
+      amount,
+      entryDate,
+      remarks,
+    });
+    await requireManagerOrAdminOrThrow();
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { success: false, error: "Not authenticated" };
+    const result = await serviceCreateEntry({
+      type: parsed.type,
+      accountId: parsed.accountId,
+      categoryId: parsed.categoryId,
+      amount: parsed.amount,
+      entryDate: parsed.entryDate,
+      remarks: parsed.remarks,
+    });
 
-  // Validate account is active
-  const { data: account } = await supabase
-    .from("accounting_accounts")
-    .select("status")
-    .eq("id", accountId)
-    .single();
-
-  if (!account || account.status !== "active") {
-    return { success: false, error: "Account is inactive or not found" };
-  }
-
-  // Validate category is active and matches type
-  const { data: category } = await supabase
-    .from("accounting_categories")
-    .select("type, status")
-    .eq("id", categoryId)
-    .single();
-
-  if (!category || category.status !== "active") {
-    return { success: false, error: "Category is inactive or not found" };
-  }
-
-  if (category.type !== type) {
-    return { success: false, error: `Category type mismatch: expected ${type}` };
-  }
-
-  const { data, error } = await supabase
-    .from("accounting_entries")
-    .insert([
-      {
-        type,
-        account_id: accountId,
-        category_id: categoryId,
-        amount,
-        entry_date: entryDate,
-        remarks,
-        created_by: user.id,
-      },
-    ])
-    .select()
-    .single();
-
-  if (error) return { success: false, error: error.message };
-  revalidatePath("/accounting");
-  return { success: true, data };
+    if (result.success) {
+      revalidatePath("/accounting");
+    }
+    return result;
+  });
 }
 
 export async function updateEntry(
@@ -206,166 +175,162 @@ export async function updateEntry(
     remarks: string;
   }>
 ): Promise<{ success: boolean; error?: string }> {
-  await requireManagerOrAdminOrThrow();
-  if (updates.amount !== undefined && updates.amount <= 0) {
-    return { success: false, error: "Amount must be positive" };
-  }
+  return withSafeError(async () => {
+    const parsed = updateEntrySchema.parse({ id, updates });
+    await requireManagerOrAdminOrThrow();
+    const supabase = await createClient();
 
-  const supabase = await createClient();
-  const { data: existingEntry, error: fetchError } = await supabase
-    .from("accounting_entries")
-    .select("source, source_id")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (fetchError) return { success: false, error: fetchError.message };
-  if (!existingEntry) return { success: false, error: "Entry not found" };
-
-  let orderIdToRevalidate: string | null = null;
-
-  if (existingEntry.source === "order_payment" && existingEntry.source_id) {
-    const { data: payment } = await supabase
-      .from("payments")
-      .select("id, order_id")
-      .eq("id", existingEntry.source_id)
+    const { data: existingEntry, error: fetchError } = await supabase
+      .from("accounting_entries")
+      .select("source, source_id")
+      .eq("id", parsed.id)
       .maybeSingle();
 
-    if (payment?.order_id) {
-      orderIdToRevalidate = payment.order_id;
+    if (fetchError) throw new Error(fetchError.message);
+    if (!existingEntry) throw new Error("Entry not found");
 
-      if (updates.amount !== undefined) {
-        const [{ data: order }, { data: payments }] = await Promise.all([
-          supabase.from("orders").select("total_amount").eq("id", payment.order_id).single(),
-          supabase.from("payments").select("id, amount").eq("order_id", payment.order_id),
-        ]);
+    let orderIdToRevalidate: string | null = null;
 
-        const totalAmount = Number(order?.total_amount ?? 0);
-        const paidExcludingCurrent = (payments ?? [])
-          .filter((row) => row.id !== existingEntry.source_id)
-          .reduce((sum, row) => sum + Number(row.amount), 0);
+    if (existingEntry.source === "order_payment" && existingEntry.source_id) {
+      const { data: payment } = await supabase
+        .from("payments")
+        .select("id, order_id")
+        .eq("id", existingEntry.source_id)
+        .maybeSingle();
 
-        if (paidExcludingCurrent + updates.amount > totalAmount) {
-          return {
-            success: false,
-            error: `Payment cannot exceed remaining amount of ${totalAmount - paidExcludingCurrent}.`,
-          };
+      if (payment?.order_id) {
+        orderIdToRevalidate = payment.order_id;
+
+        if (parsed.updates.amount !== undefined) {
+          const [{ data: order }, { data: payments }] = await Promise.all([
+            supabase.from("orders").select("total_amount").eq("id", payment.order_id).single(),
+            supabase.from("payments").select("id, amount").eq("order_id", payment.order_id),
+          ]);
+
+          const totalAmount = Number(order?.total_amount ?? 0);
+          const paidExcludingCurrent = (payments ?? [])
+            .filter((row) => row.id !== existingEntry.source_id)
+            .reduce((sum, row) => sum + Number(row.amount), 0);
+
+          if (paidExcludingCurrent + parsed.updates.amount > totalAmount) {
+            throw new Error(`Payment cannot exceed remaining amount of ${totalAmount - paidExcludingCurrent}.`);
+          }
         }
       }
+    } else if (existingEntry.source === "production_job" && existingEntry.source_id) {
+      const { data: job } = await supabase
+        .from("production_jobs")
+        .select("order_id")
+        .eq("id", existingEntry.source_id)
+        .maybeSingle();
+      if (job?.order_id) orderIdToRevalidate = job.order_id;
     }
-  } else if (existingEntry.source === "production_job" && existingEntry.source_id) {
-    const { data: job } = await supabase
-      .from("production_jobs")
-      .select("order_id")
-      .eq("id", existingEntry.source_id)
+
+    // Delegate the entry update itself to the service layer
+    const serviceRes = await serviceUpdateEntry(parsed.id, {
+      amount: parsed.updates.amount,
+      entryDate: parsed.updates.entry_date,
+      remarks: parsed.updates.remarks,
+    });
+    if (!serviceRes.success) throw new Error(serviceRes.error || "Failed to update entry");
+
+    if (existingEntry.source === "order_payment" && existingEntry.source_id) {
+      const paymentUpdates: Record<string, unknown> = {};
+      if (parsed.updates.amount !== undefined) paymentUpdates.amount = parsed.updates.amount;
+      if (parsed.updates.entry_date !== undefined) paymentUpdates.payment_date = parsed.updates.entry_date;
+      if (parsed.updates.remarks !== undefined) paymentUpdates.notes = parsed.updates.remarks?.trim() || null;
+
+      if (Object.keys(paymentUpdates).length > 0) {
+        const { error: paymentError } = await supabase
+          .from("payments")
+          .update(paymentUpdates)
+          .eq("id", existingEntry.source_id);
+        if (paymentError) throw new Error(paymentError.message);
+      }
+
+      if (orderIdToRevalidate) {
+        const { syncOrderPaymentTotals } = await import("@/lib/actions/orders");
+        await syncOrderPaymentTotals(supabase, orderIdToRevalidate);
+        revalidatePath("/orders");
+        revalidatePath(`/orders/${orderIdToRevalidate}`);
+      }
+    } else if (existingEntry.source === "production_job" && existingEntry.source_id) {
+      if (parsed.updates.amount !== undefined) {
+        const { error: jobError } = await supabase
+          .from("production_jobs")
+          .update({ payable_amount: parsed.updates.amount })
+          .eq("id", existingEntry.source_id);
+        if (jobError) throw new Error(jobError.message);
+      }
+
+      if (orderIdToRevalidate) {
+        revalidatePath("/orders");
+        revalidatePath(`/orders/${orderIdToRevalidate}`);
+      }
+    }
+
+    revalidatePath("/accounting");
+    return { success: true };
+  });
+}
+
+export async function deleteEntry(id: string): Promise<{ success: boolean; error?: string }> {
+  return withSafeError(async () => {
+    const parsedId = uuidSchema.parse(id);
+    await requireManagerOrAdminOrThrow();
+    const supabase = await createClient();
+
+    // 1. Fetch the entry first to see if it is linked to a payment or production job
+    const { data: entry, error: fetchError } = await supabase
+      .from("accounting_entries")
+      .select("source, source_id")
+      .eq("id", parsedId)
       .maybeSingle();
-    if (job?.order_id) orderIdToRevalidate = job.order_id;
-  }
 
-  const { error } = await supabase.from("accounting_entries").update(updates).eq("id", id);
+    if (fetchError) throw new Error(fetchError.message);
+    if (!entry) throw new Error("Entry not found");
 
-  if (error) return { success: false, error: error.message };
+    let orderIdToRevalidate: string | null = null;
 
-  if (existingEntry.source === "order_payment" && existingEntry.source_id) {
-    const paymentUpdates: Record<string, unknown> = {};
-    if (updates.amount !== undefined) paymentUpdates.amount = updates.amount;
-    if (updates.entry_date !== undefined) paymentUpdates.payment_date = updates.entry_date;
-    if (updates.remarks !== undefined) paymentUpdates.notes = updates.remarks?.trim() || null;
-
-    if (Object.keys(paymentUpdates).length > 0) {
-      const { error: paymentError } = await supabase
+    if (entry.source === "order_payment" && entry.source_id) {
+      const { data: payment } = await supabase
         .from("payments")
-        .update(paymentUpdates)
-        .eq("id", existingEntry.source_id);
-      if (paymentError) return { success: false, error: paymentError.message };
+        .select("order_id")
+        .eq("id", entry.source_id)
+        .maybeSingle();
+
+      if (payment?.order_id) {
+        orderIdToRevalidate = payment.order_id;
+        await supabase.from("payments").delete().eq("id", entry.source_id);
+      }
+    } else if (entry.source === "production_job" && entry.source_id) {
+      const { data: job } = await supabase
+        .from("production_jobs")
+        .select("order_id")
+        .eq("id", entry.source_id)
+        .maybeSingle();
+
+      if (job?.order_id) {
+        orderIdToRevalidate = job.order_id;
+        await supabase.from("production_jobs").delete().eq("id", entry.source_id);
+      }
     }
 
-    if (orderIdToRevalidate) {
+    // 2. Delegate the deletion of the accounting entry itself to the service layer
+    const serviceRes = await serviceDeleteEntry(parsedId);
+    if (!serviceRes.success) throw new Error(serviceRes.error || "Failed to delete entry");
+
+    // 3. If it was linked to an order payment, sync payment totals and revalidate
+    if (entry.source === "order_payment" && orderIdToRevalidate) {
       const { syncOrderPaymentTotals } = await import("@/lib/actions/orders");
       await syncOrderPaymentTotals(supabase, orderIdToRevalidate);
       revalidatePath("/orders");
       revalidatePath(`/orders/${orderIdToRevalidate}`);
-    }
-  } else if (existingEntry.source === "production_job" && existingEntry.source_id) {
-    if (updates.amount !== undefined) {
-      const { error: jobError } = await supabase
-        .from("production_jobs")
-        .update({ payable_amount: updates.amount })
-        .eq("id", existingEntry.source_id);
-      if (jobError) return { success: false, error: jobError.message };
-    }
-
-    if (orderIdToRevalidate) {
-      revalidatePath("/orders");
+    } else if (entry.source === "production_job" && orderIdToRevalidate) {
       revalidatePath(`/orders/${orderIdToRevalidate}`);
     }
-  }
 
-  revalidatePath("/accounting");
-  return { success: true };
-}
-
-export async function deleteEntry(id: string): Promise<{ success: boolean; error?: string }> {
-  await requireManagerOrAdminOrThrow();
-  const supabase = await createClient();
-
-  // 1. Fetch the entry first to see if it is linked to a payment or production job
-  const { data: entry, error: fetchError } = await supabase
-    .from("accounting_entries")
-    .select("source, source_id")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (fetchError) return { success: false, error: fetchError.message };
-  if (!entry) return { success: false, error: "Entry not found" };
-
-  let orderIdToRevalidate: string | null = null;
-
-  if (entry.source === "order_payment" && entry.source_id) {
-    // Find the associated payment and get the order_id
-    const { data: payment } = await supabase
-      .from("payments")
-      .select("order_id")
-      .eq("id", entry.source_id)
-      .maybeSingle();
-
-    if (payment?.order_id) {
-      orderIdToRevalidate = payment.order_id;
-      // Delete the payment record
-      await supabase.from("payments").delete().eq("id", entry.source_id);
-    }
-  } else if (entry.source === "production_job" && entry.source_id) {
-    // Find the associated job and get the order_id
-    const { data: job } = await supabase
-      .from("production_jobs")
-      .select("order_id")
-      .eq("id", entry.source_id)
-      .maybeSingle();
-
-    if (job?.order_id) {
-      orderIdToRevalidate = job.order_id;
-      // Delete the production job
-      await supabase.from("production_jobs").delete().eq("id", entry.source_id);
-    }
-  }
-
-  // 2. Delete the accounting entry itself
-  const { error: deleteError } = await supabase
-    .from("accounting_entries")
-    .delete()
-    .eq("id", id);
-
-  if (deleteError) return { success: false, error: deleteError.message };
-
-  // 3. If it was linked to an order payment, sync payment totals and revalidate
-  if (entry.source === "order_payment" && orderIdToRevalidate) {
-    const { syncOrderPaymentTotals } = await import("@/lib/actions/orders");
-    await syncOrderPaymentTotals(supabase, orderIdToRevalidate);
-    revalidatePath("/orders");
-    revalidatePath(`/orders/${orderIdToRevalidate}`);
-  } else if (entry.source === "production_job" && orderIdToRevalidate) {
-    revalidatePath(`/orders/${orderIdToRevalidate}`);
-  }
-
-  revalidatePath("/accounting");
-  return { success: true };
+    revalidatePath("/accounting");
+    return { success: true };
+  });
 }

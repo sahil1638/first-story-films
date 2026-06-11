@@ -5,9 +5,19 @@ import { revalidatePath } from "next/cache";
 import { requireRoleOrThrow } from "@/lib/auth/require-role";
 import { GST_RATE_PERCENT, calculateOrderBilling } from "@/lib/utils";
 import type { InvoiceType } from "@/types/database";
+import {
+  uuidSchema,
+  updateQuotationDeliverablesSchema,
+  updateQuotationServicePersonsSchema,
+  updateQuotationDeliverableSelectionSchema,
+  updateQuotationTermsSchema,
+  updateQuotationStatusSchema,
+  convertQuotationToOrderSchema,
+  updateQuotationBasicSchema,
+} from "@/lib/security/schemas";
+import { withSafeError } from "@/lib/security/errors";
 
 const VALID_QUOTATION_STATUSES = ["pending", "convert_to_order", "cancelled"] as const;
-
 type ValidQuotationStatus = (typeof VALID_QUOTATION_STATUSES)[number];
 
 export async function updateQuotationDeliverables(
@@ -15,143 +25,168 @@ export async function updateQuotationDeliverables(
   deliverableIds: string[],
   servicePersons: { service_id: string; person_count: number }[]
 ) {
-  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  const supabase = await createClient();
-  const { data: quotationDays, error: quotationDaysError } = await supabase
-    .from("quotation_function_days")
-    .select("quotation_function_day_services(service_id)")
-    .eq("quotation_id", quotationId);
+  return withSafeError(async () => {
+    const parsed = updateQuotationDeliverablesSchema.parse({
+      quotationId,
+      deliverableIds,
+      servicePersons,
+    });
+    await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+    const supabase = await createClient();
+    const { data: quotationDays, error: quotationDaysError } = await supabase
+      .from("quotation_function_days")
+      .select("quotation_function_day_services(service_id)")
+      .eq("quotation_id", parsed.quotationId);
 
-  if (quotationDaysError) throw new Error(quotationDaysError.message);
+    if (quotationDaysError) throw new Error(quotationDaysError.message);
 
-  const selectedServiceIds = new Set<string>();
-  for (const day of quotationDays ?? []) {
-    for (const service of day.quotation_function_day_services ?? []) {
-      selectedServiceIds.add(service.service_id);
+    const selectedServiceIds = new Set<string>();
+    for (const day of quotationDays ?? []) {
+      for (const service of day.quotation_function_day_services ?? []) {
+        selectedServiceIds.add(service.service_id);
+      }
     }
-  }
-  const selectedServicePersons = servicePersons.filter((sp) => selectedServiceIds.has(sp.service_id));
+    const selectedServicePersons = parsed.servicePersons.filter((sp) => selectedServiceIds.has(sp.service_id));
 
-  await supabase.from("quotation_deliverables").delete().eq("quotation_id", quotationId);
-  await supabase.from("quotation_service_persons").delete().eq("quotation_id", quotationId);
+    await supabase.from("quotation_deliverables").delete().eq("quotation_id", parsed.quotationId);
+    await supabase.from("quotation_service_persons").delete().eq("quotation_id", parsed.quotationId);
 
-  if (deliverableIds.length > 0) {
-    await supabase.from("quotation_deliverables").insert(
-      deliverableIds.map((deliverable_id) => ({ quotation_id: quotationId, deliverable_id }))
-    );
-  }
+    if (parsed.deliverableIds.length > 0) {
+      await supabase.from("quotation_deliverables").insert(
+        parsed.deliverableIds.map((deliverable_id) => ({ quotation_id: parsed.quotationId, deliverable_id }))
+      );
+    }
 
-  if (selectedServicePersons.length > 0) {
-    await supabase.from("quotation_service_persons").insert(
-      selectedServicePersons.map((sp) => ({
-        quotation_id: quotationId,
-        service_id: sp.service_id,
-        person_count: sp.person_count,
-      }))
-    );
-  }
+    if (selectedServicePersons.length > 0) {
+      await supabase.from("quotation_service_persons").insert(
+        selectedServicePersons.map((sp) => ({
+          quotation_id: parsed.quotationId,
+          service_id: sp.service_id,
+          person_count: sp.person_count,
+        }))
+      );
+    }
 
-  revalidatePath(`/quotations/${quotationId}`);
+    revalidatePath(`/quotations/${parsed.quotationId}`);
+  });
 }
 
 export async function updateQuotationServicePersons(
   quotationId: string,
   servicePersons: { service_id: string; person_count: number }[]
 ) {
-  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  const supabase = await createClient();
+  return withSafeError(async () => {
+    const parsed = updateQuotationServicePersonsSchema.parse({
+      quotationId,
+      servicePersons,
+    });
+    await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+    const supabase = await createClient();
 
-  const normalized = servicePersons
-    .map((sp) => ({
-      service_id: sp.service_id,
-      person_count: Math.max(1, Number(sp.person_count) || 1),
-    }))
-    .filter((sp) => Boolean(sp.service_id));
-
-  await supabase.from("quotation_service_persons").delete().eq("quotation_id", quotationId);
-
-  if (normalized.length > 0) {
-    const { error } = await supabase.from("quotation_service_persons").insert(
-      normalized.map((sp) => ({
-        quotation_id: quotationId,
+    const normalized = parsed.servicePersons
+      .map((sp) => ({
         service_id: sp.service_id,
-        person_count: sp.person_count,
+        person_count: Math.max(1, Number(sp.person_count) || 1),
       }))
-    );
-    if (error) throw new Error(error.message);
-  }
+      .filter((sp) => Boolean(sp.service_id));
 
-  revalidatePath(`/quotations/${quotationId}`);
+    await supabase.from("quotation_service_persons").delete().eq("quotation_id", parsed.quotationId);
+
+    if (normalized.length > 0) {
+      const { error } = await supabase.from("quotation_service_persons").insert(
+        normalized.map((sp) => ({
+          quotation_id: parsed.quotationId,
+          service_id: sp.service_id,
+          person_count: sp.person_count,
+        }))
+      );
+      if (error) throw new Error(error.message);
+    }
+
+    revalidatePath(`/quotations/${parsed.quotationId}`);
+  });
 }
 
 export async function updateQuotationDeliverableSelection(
   quotationId: string,
   deliverableIds: string[]
 ) {
-  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  const supabase = await createClient();
-  const uniqueIds = Array.from(new Set(deliverableIds.filter(Boolean)));
+  return withSafeError(async () => {
+    const parsed = updateQuotationDeliverableSelectionSchema.parse({
+      quotationId,
+      deliverableIds,
+    });
+    await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+    const supabase = await createClient();
+    const uniqueIds = Array.from(new Set(parsed.deliverableIds.filter(Boolean)));
 
-  await supabase.from("quotation_deliverables").delete().eq("quotation_id", quotationId);
+    await supabase.from("quotation_deliverables").delete().eq("quotation_id", parsed.quotationId);
 
-  if (uniqueIds.length > 0) {
-    const { error } = await supabase.from("quotation_deliverables").insert(
-      uniqueIds.map((deliverable_id) => ({ quotation_id: quotationId, deliverable_id }))
-    );
-    if (error) throw new Error(error.message);
-  }
+    if (uniqueIds.length > 0) {
+      const { error } = await supabase.from("quotation_deliverables").insert(
+        uniqueIds.map((deliverable_id) => ({ quotation_id: parsed.quotationId, deliverable_id }))
+      );
+      if (error) throw new Error(error.message);
+    }
 
-  revalidatePath(`/quotations/${quotationId}`);
+    revalidatePath(`/quotations/${parsed.quotationId}`);
+  });
 }
 
 export async function updateQuotationTerms(
   quotationId: string,
   terms: string
 ) {
-  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  const supabase = await createClient();
+  return withSafeError(async () => {
+    const parsed = updateQuotationTermsSchema.parse({ quotationId, terms });
+    await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+    const supabase = await createClient();
 
-  const { error } = await supabase
-    .from("quotations")
-    .update({ terms_and_conditions: terms.trim() || null })
-    .eq("id", quotationId);
+    const { error } = await supabase
+      .from("quotations")
+      .update({ terms_and_conditions: parsed.terms.trim() || null })
+      .eq("id", parsed.quotationId);
 
-  if (error) throw new Error(error.message);
-  revalidatePath(`/quotations/${quotationId}`);
+    if (error) throw new Error(error.message);
+    revalidatePath(`/quotations/${parsed.quotationId}`);
+  });
 }
 
 export async function updateQuotationStatus(id: string, status: string) {
-  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  if (!VALID_QUOTATION_STATUSES.includes(status as ValidQuotationStatus)) {
-    throw new Error("Invalid quotation status");
-  }
-  const supabase = await createClient();
-  const { error } = await supabase.from("quotations").update({ status }).eq("id", id);
-  if (error) throw new Error(error.message);
+  return withSafeError(async () => {
+    const parsed = updateQuotationStatusSchema.parse({ id, status });
+    await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+    if (!VALID_QUOTATION_STATUSES.includes(parsed.status as ValidQuotationStatus)) {
+      throw new Error("Invalid quotation status");
+    }
+    const supabase = await createClient();
+    const { error } = await supabase.from("quotations").update({ status: parsed.status }).eq("id", parsed.id);
+    if (error) throw new Error(error.message);
 
-  const { data: order, error: orderFetchError } = await supabase
-    .from("orders")
-    .select("id")
-    .eq("quotation_id", id)
-    .maybeSingle();
-
-  if (orderFetchError) throw new Error(orderFetchError.message);
-
-  if (order) {
-    const orderStatus = status === "cancelled" ? "cancelled" : "pending";
-    const { error: orderError } = await supabase
+    const { data: order, error: orderFetchError } = await supabase
       .from("orders")
-      .update({ status: orderStatus })
-      .eq("id", order.id);
+      .select("id")
+      .eq("quotation_id", parsed.id)
+      .maybeSingle();
 
-    if (orderError) throw new Error(orderError.message);
+    if (orderFetchError) throw new Error(orderFetchError.message);
 
-    revalidatePath("/orders");
-    revalidatePath(`/orders/${order.id}`);
-  }
+    if (order) {
+      const orderStatus = parsed.status === "cancelled" ? "cancelled" : "pending";
+      const { error: orderError } = await supabase
+        .from("orders")
+        .update({ status: orderStatus })
+        .eq("id", order.id);
 
-  revalidatePath("/quotations");
-  revalidatePath(`/quotations/${id}`);
+      if (orderError) throw new Error(orderError.message);
+
+      revalidatePath("/orders");
+      revalidatePath(`/orders/${order.id}`);
+    }
+
+    revalidatePath("/quotations");
+    revalidatePath(`/quotations/${parsed.id}`);
+  });
 }
 
 export async function convertQuotationToOrder(
@@ -161,138 +196,92 @@ export async function convertQuotationToOrder(
   servicePersons?: { service_id: string; person_count: number }[],
   deliverableIds?: string[]
 ) {
-  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  return withSafeError(async () => {
+    const parsed = convertQuotationToOrderSchema.parse({
+      quotationId,
+      subtotalAmount,
+      invoiceType,
+      servicePersons,
+      deliverableIds,
+    });
+    await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  const { data: quotation, error } = await supabase
-    .from("quotations")
-    .select("*, quotation_service_persons(*), quotation_deliverables(deliverable_id), quotation_function_days(*, quotation_function_day_services(service_id))")
-    .eq("id", quotationId)
-    .single();
+    const { data: quotation, error } = await supabase
+      .from("quotations")
+      .select("*, quotation_service_persons(*), quotation_deliverables(deliverable_id), quotation_function_days(*, quotation_function_day_services(service_id))")
+      .eq("id", parsed.quotationId)
+      .single();
 
-  if (error || !quotation) throw new Error("Quotation not found");
-  if (quotation.status !== "pending") {
-    throw new Error("Only pending quotations can be converted to orders");
-  }
-  if (!["gst", "non_gst"].includes(invoiceType)) {
-    throw new Error("Select a valid invoice type");
-  }
-
-  const billing = calculateOrderBilling(subtotalAmount, invoiceType);
-
-  const { data: order, error: orderError } = await supabase
-    .from("orders")
-    .insert({
-      quotation_id: quotationId,
-      your_name: quotation.your_name,
-      couple_name: quotation.couple_name,
-      contact_number: quotation.contact_number,
-      email: quotation.email,
-      event_location: quotation.event_location,
-      wedding_date: quotation.wedding_date,
-      wedding_venue: quotation.wedding_venue,
-      budget_range: quotation.budget_range,
-      invoice_type: invoiceType,
-      subtotal_amount: billing.baseAmount,
-      gst_rate: invoiceType === "gst" ? GST_RATE_PERCENT : 0,
-      gst_amount: billing.gstAmount,
-      total_amount: billing.totalAmount,
-      customer_id: null,
-      created_by: user?.id ?? null,
-    })
-    .select("id")
-    .single();
-
-  if (orderError || !order) throw new Error(String(orderError ?? "Failed to create order"));
-
-  const { data: customer, error: customerError } = await supabase
-    .from("customers")
-    .insert({
-      couple_name: quotation.your_name,
-      contact_number: quotation.contact_number,
-      email: quotation.email,
-      order_id: order.id,
-    })
-    .select("id")
-    .single();
-
-  if (customerError || !customer) {
-    await supabase.from("orders").delete().eq("id", order.id);
-    throw new Error(String(customerError ?? "Failed to create customer"));
-  }
-
-  const { error: linkError } = await supabase
-    .from("orders")
-    .update({ customer_id: customer.id })
-    .eq("id", order.id);
-
-  if (linkError) {
-    await supabase.from("customers").delete().eq("id", customer.id);
-    await supabase.from("orders").delete().eq("id", order.id);
-    throw new Error(String(linkError));
-  }
-
-  const serviceMap = new Map<string, number>();
-  for (const day of quotation.quotation_function_days ?? []) {
-    for (const s of day.quotation_function_day_services ?? []) {
-      serviceMap.set(s.service_id, (serviceMap.get(s.service_id) ?? 0) + 1);
+    if (error || !quotation) throw new Error("Quotation not found");
+    if (quotation.status !== "pending") {
+      throw new Error("Only pending quotations can be converted to orders");
     }
-  }
-
-  if (servicePersons && servicePersons.length > 0) {
-    for (const sp of servicePersons) {
-      serviceMap.set(sp.service_id, sp.person_count);
+    if (!["gst", "non_gst"].includes(parsed.invoiceType)) {
+      throw new Error("Select a valid invoice type");
     }
-  } else {
-    for (const sp of quotation.quotation_service_persons ?? []) {
-      serviceMap.set(sp.service_id, sp.person_count);
+
+    const serviceMap = new Map<string, number>();
+    for (const day of quotation.quotation_function_days ?? []) {
+      for (const s of day.quotation_function_day_services ?? []) {
+        serviceMap.set(s.service_id, (serviceMap.get(s.service_id) ?? 0) + 1);
+      }
     }
-  }
 
-  const orderServices = Array.from(serviceMap.entries()).map(([service_id, person_count]) => ({
-    order_id: order.id,
-    service_id,
-    person_count,
-  }));
+    if (parsed.servicePersons && parsed.servicePersons.length > 0) {
+      for (const sp of parsed.servicePersons) {
+        serviceMap.set(sp.service_id, sp.person_count);
+      }
+    } else {
+      for (const sp of quotation.quotation_service_persons ?? []) {
+        serviceMap.set(sp.service_id, sp.person_count);
+      }
+    }
 
-  if (orderServices.length > 0) {
-    await supabase.from("order_services").insert(orderServices);
-  }
+    const resolvedServicePersons = Array.from(serviceMap.entries()).map(([service_id, person_count]) => ({
+      service_id,
+      person_count,
+    }));
 
-  const selectedDeliverableIds =
-    deliverableIds && deliverableIds.length > 0
-      ? deliverableIds
-      : (quotation.quotation_deliverables ?? []).map(
-          (deliverable: { deliverable_id: string }) => deliverable.deliverable_id
-        );
-  const uniqueDeliverableIds = Array.from(new Set(selectedDeliverableIds.filter(Boolean)));
+    const selectedDeliverableIds =
+      parsed.deliverableIds && parsed.deliverableIds.length > 0
+        ? parsed.deliverableIds
+        : (quotation.quotation_deliverables ?? []).map(
+            (deliverable: { deliverable_id: string }) => deliverable.deliverable_id
+          );
+    const resolvedDeliverableIds = Array.from(new Set(selectedDeliverableIds.filter(Boolean)));
 
-  if (uniqueDeliverableIds.length > 0) {
-    const { error: deliverablesError } = await supabase.from("order_deliverables").insert(
-      uniqueDeliverableIds.map((deliverable_id) => ({
-        order_id: order.id,
-        deliverable_id,
-      }))
-    );
-    if (deliverablesError) throw new Error(deliverablesError.message);
-  }
+    const { data: orderId, error: convertError } = await supabase.rpc("convert_quotation_to_order", {
+      quotation_id: parsed.quotationId,
+      subtotal: parsed.subtotalAmount,
+      invoice_type: parsed.invoiceType,
+      service_persons: resolvedServicePersons,
+      deliverable_ids: resolvedDeliverableIds,
+      created_by_user: user?.id ?? null,
+    });
 
-  await supabase.from("quotations").update({ status: "convert_to_order" }).eq("id", quotationId);
+    if (convertError || !orderId) {
+      throw new Error(convertError?.message ?? "Failed to convert quotation to order");
+    }
 
-  revalidatePath("/quotations");
-  revalidatePath("/orders");
-  return order.id;
+    revalidatePath("/quotations");
+    revalidatePath("/orders");
+    return orderId as string;
+  });
 }
 
 export async function deleteQuotation(id: string) {
-  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  const supabase = await createClient();
-  const { error } = await supabase.from("quotations").delete().eq("id", id);
-  if (error) throw new Error(error.message);
-  revalidatePath("/quotations");
+  return withSafeError(async () => {
+    const parsedId = uuidSchema.parse(id);
+    await requireRoleOrThrow(["admin", "manager"], "Manager or admin access required");
+    const supabase = await createClient();
+    const { error } = await supabase.from("quotations").delete().eq("id", parsedId);
+    if (error) throw new Error(error.message);
+    revalidatePath("/quotations");
+  });
 }
 
 export async function updateQuotationBasic(
@@ -310,70 +299,73 @@ export async function updateQuotationBasic(
     amount?: number;
   }
 ) {
-  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  const supabase = await createClient();
+  return withSafeError(async () => {
+    const parsed = updateQuotationBasicSchema.parse({ id, data });
+    await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+    const supabase = await createClient();
 
-  const updatePayload: Record<string, unknown> = {
-    couple_name: data.couple_name,
-    your_name: data.your_name,
-    contact_number: data.contact_number,
-    email: data.email || null,
-    event_location: data.event_location,
-    wedding_date: data.wedding_date,
-    wedding_venue: data.wedding_venue || null,
-    budget_range: data.budget_range,
-  };
-
-  if (data.status) {
-    updatePayload.status = data.status;
-  }
-
-  if (typeof data.amount === "number") {
-    updatePayload.amount = data.amount;
-  }
-
-  const { error } = await supabase
-    .from("quotations")
-    .update(updatePayload)
-    .eq("id", id);
-
-  if (error) throw new Error(error.message);
-
-  const { data: order, error: orderFetchError } = await supabase
-    .from("orders")
-    .select("id")
-    .eq("quotation_id", id)
-    .maybeSingle();
-
-  if (orderFetchError) throw new Error(orderFetchError.message);
-
-  if (order) {
-    const orderPayload: Record<string, unknown> = {
-      couple_name: data.couple_name,
-      your_name: data.your_name,
-      contact_number: data.contact_number,
-      email: data.email || null,
-      event_location: data.event_location,
-      wedding_date: data.wedding_date,
-      wedding_venue: data.wedding_venue || null,
-      budget_range: data.budget_range,
+    const updatePayload: Record<string, unknown> = {
+      couple_name: parsed.data.couple_name,
+      your_name: parsed.data.your_name,
+      contact_number: parsed.data.contact_number,
+      email: parsed.data.email || null,
+      event_location: parsed.data.event_location,
+      wedding_date: parsed.data.wedding_date,
+      wedding_venue: parsed.data.wedding_venue || null,
+      budget_range: parsed.data.budget_range,
     };
 
-    if (data.status) {
-      orderPayload.status = data.status === "cancelled" ? "cancelled" : "pending";
+    if (parsed.data.status) {
+      updatePayload.status = parsed.data.status;
     }
 
-    const { error: orderError } = await supabase
+    if (typeof parsed.data.amount === "number") {
+      updatePayload.amount = parsed.data.amount;
+    }
+
+    const { error } = await supabase
+      .from("quotations")
+      .update(updatePayload)
+      .eq("id", parsed.id);
+
+    if (error) throw new Error(error.message);
+
+    const { data: order, error: orderFetchError } = await supabase
       .from("orders")
-      .update(orderPayload)
-      .eq("id", order.id);
+      .select("id")
+      .eq("quotation_id", parsed.id)
+      .maybeSingle();
 
-    if (orderError) throw new Error(orderError.message);
+    if (orderFetchError) throw new Error(orderFetchError.message);
 
-    revalidatePath("/orders");
-    revalidatePath(`/orders/${order.id}`);
-  }
+    if (order) {
+      const orderPayload: Record<string, unknown> = {
+        couple_name: parsed.data.couple_name,
+        your_name: parsed.data.your_name,
+        contact_number: parsed.data.contact_number,
+        email: parsed.data.email || null,
+        event_location: parsed.data.event_location,
+        wedding_date: parsed.data.wedding_date,
+        wedding_venue: parsed.data.wedding_venue || null,
+        budget_range: parsed.data.budget_range,
+      };
 
-  revalidatePath("/quotations");
-  revalidatePath(`/quotations/${id}`);
+      if (parsed.data.status) {
+        orderPayload.status = parsed.data.status === "cancelled" ? "cancelled" : "pending";
+      }
+
+      const { error: orderError } = await supabase
+        .from("orders")
+        .update(orderPayload)
+        .eq("id", order.id);
+
+      if (orderError) throw new Error(orderError.message);
+
+      revalidatePath("/orders");
+      revalidatePath(`/orders/${order.id}`);
+    }
+
+    revalidatePath("/quotations");
+    revalidatePath(`/quotations/${parsed.id}`);
+  });
 }

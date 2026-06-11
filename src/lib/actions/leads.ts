@@ -15,8 +15,9 @@ import {
   PRE_WEDDING_OPTIONS,
   SHOOTING_SIDE_OPTIONS,
 } from "@/lib/constants";
-import { checkRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
+import { rateLimitKey } from "@/lib/security/rate-limit";
 import type { LeadSource } from "@/types/database";
+import { withSafeError } from "@/lib/security/errors";
 
 export interface FunctionDayInput {
   day_index: number;
@@ -161,39 +162,157 @@ async function assertActiveReferences(
 }
 
 export async function createLead(input: LeadFormInput) {
-  const parsed = leadInputSchema.parse(input);
-  const authClient = await createClient();
-  const {
-    data: { user },
-  } = await authClient.auth.getUser();
+  return withSafeError(async () => {
+    const parsed = leadInputSchema.parse(input);
+    const authClient = await createClient();
+    const {
+      data: { user },
+    } = await authClient.auth.getUser();
 
-  if (user) {
-    await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  } else {
-    const ip = await getClientIp();
-    const rate = checkRateLimit(rateLimitKey("public-lead", ip), {
-      limit: 5,
-      windowMs: 60 * 60 * 1000,
-    });
-    if (!rate.allowed) {
-      throw new Error("Too many inquiry submissions. Please try again later.");
+    if (user) {
+      await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+    } else {
+      const ip = await getClientIp();
+      const { data: allowed, error: limitError } = await authClient.rpc("check_rate_limit", {
+        limit_key: rateLimitKey("public-lead", ip),
+        max_tokens: 5.0,
+        refill_rate_per_sec: 5.0 / 3600.0,
+        cost: 1.0,
+      });
+      if (limitError || !allowed) {
+        throw new Error("Too many inquiry submissions. Please try again later.");
+      }
     }
-  }
 
-  const source: LeadSource = user ? "admin_manual" : "public_form";
-  const status = user ? parsed.status : "pending";
+    const source: LeadSource = user ? "admin_manual" : "public_form";
+    const status = user ? parsed.status : "pending";
 
-  // Public form: use service role so RLS does not block insert + select
-  const supabase =
-    source === "public_form" ? createAdminClient() : authClient;
+    // Public form: use service role so RLS does not block insert + select
+    const supabase =
+      source === "public_form" ? createAdminClient() : authClient;
 
-  await assertActiveReferences(supabase, parsed.function_days);
+    await assertActiveReferences(supabase, parsed.function_days);
 
-  const { data: lead, error } = await supabase
-    .from("leads")
-    .insert({
-      source,
-      status,
+    const { data: lead, error } = await supabase
+      .from("leads")
+      .insert({
+        source,
+        status,
+        your_name: parsed.your_name,
+        couple_name: parsed.couple_name,
+        referral_source: parsed.referral_source,
+        contact_number: parsed.contact_number,
+        email: parsed.email || null,
+        event_location: parsed.event_location,
+        wedding_date: parsed.wedding_date,
+        wedding_venue: parsed.wedding_venue || null,
+        album_requirement: parsed.album_requirement,
+        drone_requirement: parsed.drone_requirement,
+        shooting_side: parsed.shooting_side,
+        pre_wedding_shoot: parsed.pre_wedding_shoot,
+        functions_count: parsed.functions_count,
+        has_additional_info: parsed.has_additional_info,
+        additional_details: parsed.additional_details || null,
+        agreement_accepted: parsed.agreement_accepted,
+        budget_range: parsed.budget_range,
+        created_by: user?.id ?? null,
+      })
+      .select("id")
+      .single();
+
+    if (error || !lead) throw new Error(error?.message ?? "Failed to create lead");
+
+    for (const day of parsed.function_days) {
+      const { data: dayRow, error: dayError } = await supabase
+        .from("lead_function_days")
+        .insert({
+          lead_id: lead.id,
+          day_index: day.day_index,
+          day_date: day.day_date,
+          first_event_id: day.first_event_id || null,
+          second_event_id: day.second_event_id || null,
+        })
+        .select("id")
+        .single();
+
+      if (dayError || !dayRow) throw new Error(dayError?.message ?? "Failed to save function day");
+
+      if (day.service_ids.length > 0) {
+        const { error: svcError } = await supabase.from("lead_function_day_services").insert(
+          day.service_ids.map((service_id) => ({
+            lead_function_day_id: dayRow.id,
+            service_id,
+          }))
+        );
+        if (svcError) throw new Error(svcError.message);
+      }
+    }
+
+    revalidatePath("/leads");
+    return lead.id;
+  });
+}
+
+export async function updateLeadStatus(id: string, status: string) {
+  return withSafeError(async () => {
+    await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+    const supabase = await createClient();
+    const { error } = await supabase.from("leads").update({ status }).eq("id", id);
+    if (error) throw new Error(error.message);
+    revalidatePath("/leads");
+    revalidatePath(`/leads/${id}`);
+  });
+}
+
+export async function convertLeadToQuotation(
+  leadId: string,
+  servicePersons: { service_id: string; person_count: number }[] = [],
+  deliverableIds: string[] = [],
+  amount = 0
+) {
+  return withSafeError(async () => {
+    await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const { data: quotationId, error } = await supabase.rpc("convert_lead_to_quotation", {
+      lead_id: leadId,
+      amount,
+      service_persons: servicePersons,
+      deliverable_ids: deliverableIds,
+      created_by_user: user?.id ?? null,
+    });
+
+    if (error || !quotationId) {
+      throw new Error(error?.message ?? "Failed to convert lead to quotation");
+    }
+
+    revalidatePath("/leads");
+    revalidatePath("/quotations");
+    return quotationId as string;
+  });
+}
+
+export async function deleteLead(id: string) {
+  return withSafeError(async () => {
+    await requireRoleOrThrow(["admin", "manager"], "Manager or admin access required");
+    const supabase = await createClient();
+    const { error } = await supabase.from("leads").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+    revalidatePath("/leads");
+  });
+}
+
+export async function updateLead(id: string, input: LeadFormInput) {
+  return withSafeError(async () => {
+    await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+    const parsed = leadInputSchema.parse(input);
+    const supabase = await createClient();
+    await assertActiveReferences(supabase, parsed.function_days);
+
+    const updatePayload: Record<string, unknown> = {
       your_name: parsed.your_name,
       couple_name: parsed.couple_name,
       referral_source: parsed.referral_source,
@@ -209,239 +328,50 @@ export async function createLead(input: LeadFormInput) {
       functions_count: parsed.functions_count,
       has_additional_info: parsed.has_additional_info,
       additional_details: parsed.additional_details || null,
-      agreement_accepted: parsed.agreement_accepted,
       budget_range: parsed.budget_range,
-      created_by: user?.id ?? null,
-    })
-    .select("id")
-    .single();
+    };
 
-  if (error || !lead) throw new Error(error?.message ?? "Failed to create lead");
-
-  for (const day of parsed.function_days) {
-    const { data: dayRow, error: dayError } = await supabase
-      .from("lead_function_days")
-      .insert({
-        lead_id: lead.id,
-        day_index: day.day_index,
-        day_date: day.day_date,
-        first_event_id: day.first_event_id || null,
-        second_event_id: day.second_event_id || null,
-      })
-      .select("id")
-      .single();
-
-    if (dayError || !dayRow) throw new Error(dayError?.message ?? "Failed to save function day");
-
-    if (day.service_ids.length > 0) {
-      const { error: svcError } = await supabase.from("lead_function_day_services").insert(
-        day.service_ids.map((service_id) => ({
-          lead_function_day_id: dayRow.id,
-          service_id,
-        }))
-      );
-      if (svcError) throw new Error(svcError.message);
+    if (parsed.status) {
+      updatePayload.status = parsed.status;
     }
-  }
 
-  revalidatePath("/leads");
-  return lead.id;
-}
+    const { error } = await supabase
+      .from("leads")
+      .update(updatePayload)
+      .eq("id", id);
 
-export async function updateLeadStatus(id: string, status: string) {
-  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  const supabase = await createClient();
-  const { error } = await supabase.from("leads").update({ status }).eq("id", id);
-  if (error) throw new Error(error.message);
-  revalidatePath("/leads");
-  revalidatePath(`/leads/${id}`);
-}
+    if (error) throw new Error(error.message);
 
-export async function convertLeadToQuotation(
-  leadId: string,
-  servicePersons: { service_id: string; person_count: number }[] = [],
-  deliverableIds: string[] = [],
-  amount = 0
-) {
-  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    // Sync lead function days (delete and re-create)
+    await supabase.from("lead_function_days").delete().eq("lead_id", id);
 
-  const { data: lead, error: leadError } = await supabase
-    .from("leads")
-    .select("*, lead_function_days(*, lead_function_day_services(service_id))")
-    .eq("id", leadId)
-    .single();
+    for (const day of parsed.function_days) {
+      const { data: dayRow, error: dayError } = await supabase
+        .from("lead_function_days")
+        .insert({
+          lead_id: id,
+          day_index: day.day_index,
+          day_date: day.day_date,
+          first_event_id: day.first_event_id || null,
+          second_event_id: day.second_event_id || null,
+        })
+        .select("id")
+        .single();
 
-  if (leadError || !lead) throw new Error("Lead not found");
+      if (dayError || !dayRow) throw new Error(dayError?.message ?? "Failed to save function day");
 
-  const { data: quotation, error: qError } = await supabase
-    .from("quotations")
-    .insert({
-      your_name: lead.your_name,
-      couple_name: lead.couple_name,
-      referral_source: lead.referral_source,
-      contact_number: lead.contact_number,
-      email: lead.email,
-      event_location: lead.event_location,
-      wedding_date: lead.wedding_date,
-      wedding_venue: lead.wedding_venue,
-      album_requirement: lead.album_requirement,
-      drone_requirement: lead.drone_requirement,
-      shooting_side: lead.shooting_side,
-      pre_wedding_shoot: lead.pre_wedding_shoot,
-      functions_count: lead.functions_count,
-      has_additional_info: lead.has_additional_info,
-      additional_details: lead.additional_details,
-      budget_range: lead.budget_range,
-      original_lead_id: lead.id,
-      created_by: user?.id ?? null,
-      amount,
-    })
-    .select("id")
-    .single();
-
-  if (qError || !quotation) throw new Error(qError?.message ?? "Failed to create quotation");
-
-  for (const day of lead.lead_function_days ?? []) {
-    const { data: qDay, error: dayError } = await supabase
-      .from("quotation_function_days")
-      .insert({
-        quotation_id: quotation.id,
-        day_index: day.day_index,
-        day_date: day.day_date,
-        first_event_id: day.first_event_id,
-        second_event_id: day.second_event_id,
-      })
-      .select("id")
-      .single();
-
-    if (dayError || !qDay) throw new Error(dayError?.message ?? "Failed to copy function days");
-
-    const serviceIds = (day.lead_function_day_services ?? []).map(
-      (s: { service_id: string }) => s.service_id
-    );
-    if (serviceIds.length > 0) {
-      await supabase.from("quotation_function_day_services").insert(
-        serviceIds.map((service_id: string) => ({
-          quotation_function_day_id: qDay.id,
-          service_id,
-        }))
-      );
+      if (day.service_ids.length > 0) {
+        const { error: svcError } = await supabase.from("lead_function_day_services").insert(
+          day.service_ids.map((service_id) => ({
+            lead_function_day_id: dayRow.id,
+            service_id,
+          }))
+        );
+        if (svcError) throw new Error(svcError.message);
+      }
     }
-  }
 
-  // Save service person counts
-  if (servicePersons.length > 0) {
-    const { error: spError } = await supabase.from("quotation_service_persons").insert(
-      servicePersons.map((sp) => ({
-        quotation_id: quotation.id,
-        service_id: sp.service_id,
-        person_count: sp.person_count,
-      }))
-    );
-    if (spError) throw new Error(spError.message);
-  }
-
-  // Save selected deliverables
-  if (deliverableIds.length > 0) {
-    const { error: delError } = await supabase.from("quotation_deliverables").insert(
-      deliverableIds.map((deliverable_id) => ({
-        quotation_id: quotation.id,
-        deliverable_id,
-      }))
-    );
-    if (delError) throw new Error(delError.message);
-  }
-
-  // Delete the lead from the leads table upon conversion
-  const { error: deleteError } = await supabase
-    .from("leads")
-    .delete()
-    .eq("id", leadId);
-
-  if (deleteError) throw new Error(deleteError.message);
-
-  revalidatePath("/leads");
-  revalidatePath("/quotations");
-  return quotation.id;
-}
-
-export async function deleteLead(id: string) {
-  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  const supabase = await createClient();
-  const { error } = await supabase.from("leads").delete().eq("id", id);
-  if (error) throw new Error(error.message);
-  revalidatePath("/leads");
-}
-
-export async function updateLead(id: string, input: LeadFormInput) {
-  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  const parsed = leadInputSchema.parse(input);
-  const supabase = await createClient();
-  await assertActiveReferences(supabase, parsed.function_days);
-
-  const updatePayload: Record<string, unknown> = {
-    your_name: parsed.your_name,
-    couple_name: parsed.couple_name,
-    referral_source: parsed.referral_source,
-    contact_number: parsed.contact_number,
-    email: parsed.email || null,
-    event_location: parsed.event_location,
-    wedding_date: parsed.wedding_date,
-    wedding_venue: parsed.wedding_venue || null,
-    album_requirement: parsed.album_requirement,
-    drone_requirement: parsed.drone_requirement,
-    shooting_side: parsed.shooting_side,
-    pre_wedding_shoot: parsed.pre_wedding_shoot,
-    functions_count: parsed.functions_count,
-    has_additional_info: parsed.has_additional_info,
-    additional_details: parsed.additional_details || null,
-    budget_range: parsed.budget_range,
-  };
-
-  if (parsed.status) {
-    updatePayload.status = parsed.status;
-  }
-
-  const { error } = await supabase
-    .from("leads")
-    .update(updatePayload)
-    .eq("id", id);
-
-  if (error) throw new Error(error.message);
-
-  // Sync lead function days (delete and re-create)
-  await supabase.from("lead_function_days").delete().eq("lead_id", id);
-
-  for (const day of parsed.function_days) {
-    const { data: dayRow, error: dayError } = await supabase
-      .from("lead_function_days")
-      .insert({
-        lead_id: id,
-        day_index: day.day_index,
-        day_date: day.day_date,
-        first_event_id: day.first_event_id || null,
-        second_event_id: day.second_event_id || null,
-      })
-      .select("id")
-      .single();
-
-    if (dayError || !dayRow) throw new Error(dayError?.message ?? "Failed to save function day");
-
-    if (day.service_ids.length > 0) {
-      const { error: svcError } = await supabase.from("lead_function_day_services").insert(
-        day.service_ids.map((service_id) => ({
-          lead_function_day_id: dayRow.id,
-          service_id,
-        }))
-      );
-      if (svcError) throw new Error(svcError.message);
-    }
-  }
-
-  revalidatePath("/leads");
-  revalidatePath(`/leads/${id}`);
+    revalidatePath("/leads");
+    revalidatePath(`/leads/${id}`);
+  });
 }

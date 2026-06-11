@@ -3,6 +3,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { requireManagerOrAdminOrThrow } from "@/lib/auth/require-role";
+import {
+  upsertMasterSchema,
+  deleteMasterSchema,
+  updateSettingsSchema,
+} from "@/lib/security/schemas";
+import { withSafeError } from "@/lib/security/errors";
 
 type TableName =
   | "services"
@@ -16,35 +22,43 @@ export async function upsertMaster(
   data: Record<string, unknown>,
   id?: string
 ) {
-  await requireManagerOrAdminOrThrow();
-  const supabase = await createClient();
+  return withSafeError(async () => {
+    const parsed = upsertMasterSchema.parse({ table, data, id });
+    await requireManagerOrAdminOrThrow();
+    const supabase = await createClient();
 
-  if (id) {
-    const { error } = await supabase.from(table).update(data).eq("id", id);
-    if (error) throw new Error(error.message);
-  } else {
-    const { error } = await supabase.from(table).insert(data);
-    if (error) throw new Error(error.message);
-  }
+    if (parsed.id) {
+      const { error } = await supabase.from(parsed.table).update(parsed.data as any).eq("id", parsed.id);
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await supabase.from(parsed.table).insert(parsed.data as any);
+      if (error) throw new Error(error.message);
+    }
 
-  revalidatePath(`/masters/${table === "crew_members" ? "crew" : table}`);
+    revalidatePath(`/masters/${parsed.table === "crew_members" ? "crew" : parsed.table}`);
+  });
 }
 
 export async function deleteMaster(table: TableName, id: string) {
-  await requireManagerOrAdminOrThrow();
-  const supabase = await createClient();
-  const { error } = await supabase.from(table).delete().eq("id", id);
-  if (error) throw new Error(error.message);
-  revalidatePath(`/masters/${table === "crew_members" ? "crew" : table}`);
+  return withSafeError(async () => {
+    const parsed = deleteMasterSchema.parse({ table, id });
+    await requireManagerOrAdminOrThrow();
+    const supabase = await createClient();
+    const { error } = await supabase.from(parsed.table).delete().eq("id", parsed.id);
+    if (error) throw new Error(error.message);
+    revalidatePath(`/masters/${parsed.table === "crew_members" ? "crew" : parsed.table}`);
+  });
 }
 
-
 export async function updateSettings(key: string, value: string) {
-  await requireManagerOrAdminOrThrow();
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("settings")
-    .upsert({ key, value, updated_at: new Date().toISOString() });
-  if (error) throw new Error(error.message);
-  revalidatePath("/settings");
+  return withSafeError(async () => {
+    const parsed = updateSettingsSchema.parse({ key, value });
+    await requireManagerOrAdminOrThrow();
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("settings")
+      .upsert({ key: parsed.key, value: parsed.value, updated_at: new Date().toISOString() });
+    if (error) throw new Error(error.message);
+    revalidatePath("/settings");
+  });
 }
