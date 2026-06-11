@@ -3,7 +3,19 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
+import { z } from "zod";
 import { requireRoleOrThrow } from "@/lib/auth/require-role";
+import {
+  ALBUM_OPTIONS,
+  BUDGET_RANGES,
+  DRONE_OPTIONS,
+  LEAD_REFERRAL_OPTIONS,
+  LEAD_STATUSES,
+  PRE_WEDDING_OPTIONS,
+  SHOOTING_SIDE_OPTIONS,
+} from "@/lib/constants";
+import { checkRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
 import type { LeadSource } from "@/types/database";
 
 export interface FunctionDayInput {
@@ -37,40 +49,168 @@ export interface LeadFormInput {
   status?: string;
 }
 
+const leadStatusValues = LEAD_STATUSES.map((status) => status.value) as [
+  string,
+  ...string[],
+];
+
+const trimmedText = (max: number) =>
+  z.string().trim().min(1, "Required").max(max, `Must be ${max} characters or less`);
+
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max, `Must be ${max} characters or less`)
+    .optional()
+    .transform((value) => value || undefined);
+
+const dateString = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date")
+  .refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`)), "Invalid date");
+
+const functionDaySchema = z
+  .object({
+    day_index: z.number().int().min(1).max(30),
+    day_date: dateString,
+    first_event_id: z.string().uuid(),
+    second_event_id: z.string().uuid().optional().or(z.literal("")).transform((value) => value || undefined),
+    service_ids: z.array(z.string().uuid()).max(20).default([]),
+  })
+  .strict()
+  .transform((day) => ({
+    ...day,
+    service_ids: Array.from(new Set(day.service_ids)),
+  }));
+
+const leadInputSchema = z
+  .object({
+    your_name: trimmedText(80).regex(/^[A-Za-zÀ-ÖØ-öø-ÿ' -]+$/, "Invalid name"),
+    couple_name: trimmedText(120).regex(/^[A-Za-zÀ-ÖØ-öø-ÿ' &-]+$/, "Invalid couple name"),
+    referral_source: z.enum(LEAD_REFERRAL_OPTIONS),
+    contact_number: z.string().trim().regex(/^\+?\d{10}$/, "Invalid contact number"),
+    email: z.email().max(254).optional().or(z.literal("")).transform((value) => value || undefined),
+    event_location: trimmedText(160),
+    wedding_date: dateString,
+    wedding_venue: optionalText(160),
+    album_requirement: z.enum(ALBUM_OPTIONS),
+    drone_requirement: z.enum(DRONE_OPTIONS),
+    shooting_side: z.enum(SHOOTING_SIDE_OPTIONS),
+    pre_wedding_shoot: z.enum(PRE_WEDDING_OPTIONS),
+    functions_count: z.number().int().min(1).max(30),
+    has_additional_info: z.boolean(),
+    additional_details: optionalText(2000),
+    agreement_accepted: z.literal(true),
+    budget_range: z.enum(BUDGET_RANGES),
+    function_days: z.array(functionDaySchema).min(1).max(30),
+    source: z.enum(["public_form", "admin_manual", "user_management"]).optional(),
+    status: z.enum(leadStatusValues).optional(),
+  })
+  .strict()
+  .refine((input) => input.function_days.length === input.functions_count, {
+    path: ["function_days"],
+    message: "Function day count must match functions count",
+  })
+  .refine(
+    (input) => !input.has_additional_info || Boolean(input.additional_details?.trim()),
+    { path: ["additional_details"], message: "Additional details are required" }
+  );
+
+async function getClientIp() {
+  const headerStore = await headers();
+  return (
+    headerStore.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    headerStore.get("x-real-ip") ||
+    "unknown"
+  );
+}
+
+async function assertActiveReferences(
+  supabase: Awaited<ReturnType<typeof createClient>> | ReturnType<typeof createAdminClient>,
+  days: FunctionDayInput[]
+) {
+  const eventIds = Array.from(
+    new Set(days.flatMap((day) => [day.first_event_id, day.second_event_id].filter(Boolean)))
+  ) as string[];
+  const serviceIds = Array.from(new Set(days.flatMap((day) => day.service_ids)));
+
+  if (eventIds.length > 0) {
+    const { data, error } = await supabase
+      .from("events")
+      .select("id")
+      .in("id", eventIds)
+      .eq("status", "active");
+    if (error) throw new Error("Unable to validate selected events");
+    if ((data ?? []).length !== eventIds.length) {
+      throw new Error("One or more selected events are unavailable");
+    }
+  }
+
+  if (serviceIds.length > 0) {
+    const { data, error } = await supabase
+      .from("services")
+      .select("id")
+      .in("id", serviceIds)
+      .eq("status", "active");
+    if (error) throw new Error("Unable to validate selected services");
+    if ((data ?? []).length !== serviceIds.length) {
+      throw new Error("One or more selected services are unavailable");
+    }
+  }
+}
+
 export async function createLead(input: LeadFormInput) {
+  const parsed = leadInputSchema.parse(input);
   const authClient = await createClient();
   const {
     data: { user },
   } = await authClient.auth.getUser();
 
-  const source: LeadSource =
-    input.source ?? (user ? "admin_manual" : "public_form");
+  if (user) {
+    await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+  } else {
+    const ip = await getClientIp();
+    const rate = checkRateLimit(rateLimitKey("public-lead", ip), {
+      limit: 5,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (!rate.allowed) {
+      throw new Error("Too many inquiry submissions. Please try again later.");
+    }
+  }
+
+  const source: LeadSource = user ? "admin_manual" : "public_form";
+  const status = user ? parsed.status : "pending";
 
   // Public form: use service role so RLS does not block insert + select
   const supabase =
     source === "public_form" ? createAdminClient() : authClient;
 
+  await assertActiveReferences(supabase, parsed.function_days);
+
   const { data: lead, error } = await supabase
     .from("leads")
     .insert({
       source,
-      your_name: input.your_name,
-      couple_name: input.couple_name,
-      referral_source: input.referral_source,
-      contact_number: input.contact_number,
-      email: input.email || null,
-      event_location: input.event_location,
-      wedding_date: input.wedding_date,
-      wedding_venue: input.wedding_venue || null,
-      album_requirement: input.album_requirement,
-      drone_requirement: input.drone_requirement,
-      shooting_side: input.shooting_side,
-      pre_wedding_shoot: input.pre_wedding_shoot,
-      functions_count: input.functions_count,
-      has_additional_info: input.has_additional_info,
-      additional_details: input.additional_details || null,
-      agreement_accepted: input.agreement_accepted,
-      budget_range: input.budget_range,
+      status,
+      your_name: parsed.your_name,
+      couple_name: parsed.couple_name,
+      referral_source: parsed.referral_source,
+      contact_number: parsed.contact_number,
+      email: parsed.email || null,
+      event_location: parsed.event_location,
+      wedding_date: parsed.wedding_date,
+      wedding_venue: parsed.wedding_venue || null,
+      album_requirement: parsed.album_requirement,
+      drone_requirement: parsed.drone_requirement,
+      shooting_side: parsed.shooting_side,
+      pre_wedding_shoot: parsed.pre_wedding_shoot,
+      functions_count: parsed.functions_count,
+      has_additional_info: parsed.has_additional_info,
+      additional_details: parsed.additional_details || null,
+      agreement_accepted: parsed.agreement_accepted,
+      budget_range: parsed.budget_range,
       created_by: user?.id ?? null,
     })
     .select("id")
@@ -78,7 +218,7 @@ export async function createLead(input: LeadFormInput) {
 
   if (error || !lead) throw new Error(error?.message ?? "Failed to create lead");
 
-  for (const day of input.function_days) {
+  for (const day of parsed.function_days) {
     const { data: dayRow, error: dayError } = await supabase
       .from("lead_function_days")
       .insert({
@@ -239,29 +379,31 @@ export async function deleteLead(id: string) {
 
 export async function updateLead(id: string, input: LeadFormInput) {
   await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+  const parsed = leadInputSchema.parse(input);
   const supabase = await createClient();
+  await assertActiveReferences(supabase, parsed.function_days);
 
   const updatePayload: Record<string, unknown> = {
-    your_name: input.your_name,
-    couple_name: input.couple_name,
-    referral_source: input.referral_source,
-    contact_number: input.contact_number,
-    email: input.email || null,
-    event_location: input.event_location,
-    wedding_date: input.wedding_date,
-    wedding_venue: input.wedding_venue || null,
-    album_requirement: input.album_requirement,
-    drone_requirement: input.drone_requirement,
-    shooting_side: input.shooting_side,
-    pre_wedding_shoot: input.pre_wedding_shoot,
-    functions_count: input.functions_count,
-    has_additional_info: input.has_additional_info,
-    additional_details: input.additional_details || null,
-    budget_range: input.budget_range,
+    your_name: parsed.your_name,
+    couple_name: parsed.couple_name,
+    referral_source: parsed.referral_source,
+    contact_number: parsed.contact_number,
+    email: parsed.email || null,
+    event_location: parsed.event_location,
+    wedding_date: parsed.wedding_date,
+    wedding_venue: parsed.wedding_venue || null,
+    album_requirement: parsed.album_requirement,
+    drone_requirement: parsed.drone_requirement,
+    shooting_side: parsed.shooting_side,
+    pre_wedding_shoot: parsed.pre_wedding_shoot,
+    functions_count: parsed.functions_count,
+    has_additional_info: parsed.has_additional_info,
+    additional_details: parsed.additional_details || null,
+    budget_range: parsed.budget_range,
   };
 
-  if (input.status) {
-    updatePayload.status = input.status;
+  if (parsed.status) {
+    updatePayload.status = parsed.status;
   }
 
   const { error } = await supabase
@@ -274,7 +416,7 @@ export async function updateLead(id: string, input: LeadFormInput) {
   // Sync lead function days (delete and re-create)
   await supabase.from("lead_function_days").delete().eq("lead_id", id);
 
-  for (const day of input.function_days) {
+  for (const day of parsed.function_days) {
     const { data: dayRow, error: dayError } = await supabase
       .from("lead_function_days")
       .insert({

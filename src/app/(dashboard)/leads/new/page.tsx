@@ -8,7 +8,7 @@ export default function NewLeadPage() {
         <BackButton href="/leads" />
       </div>
       <h1 className="text-2xl font-semibold text-stone-900">Add Lead Manually</h1>
-      <PublicLeadForm />
+      <PublicLeadForm isDashboard={true} />
     </div>
   );
 }

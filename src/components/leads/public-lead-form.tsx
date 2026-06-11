@@ -129,23 +129,7 @@ export function PublicLeadForm({
     setAlertOpen(true);
   }
 
-  const preview = process.env.NEXT_PUBLIC_PREVIEW_MODE === "true";
-
   useEffect(() => {
-    if (preview) {
-      const timer = setTimeout(() => {
-        setEvents([
-          { id: "1", name: "Haldi", status: "active", created_at: "", updated_at: "" },
-          { id: "2", name: "Wedding", status: "active", created_at: "", updated_at: "" },
-          { id: "3", name: "Reception", status: "active", created_at: "", updated_at: "" },
-        ]);
-        setServices([
-          { id: "1", name: "Photography", status: "active", created_at: "", updated_at: "" },
-          { id: "2", name: "Cinematography", status: "active", created_at: "", updated_at: "" },
-        ]);
-      }, 0);
-      return () => clearTimeout(timer);
-    }
     const supabase = createClient();
     let isMounted = true;
     Promise.all([
@@ -162,7 +146,7 @@ export function PublicLeadForm({
     return () => {
       isMounted = false;
     };
-  }, [preview]);
+  }, []);
 
   useEffect(() => {
     const count = Math.min(Math.max(form.functions_count, 1), 30);
@@ -376,15 +360,6 @@ export function PublicLeadForm({
 
     setLoading(true);
     try {
-      if (preview) {
-        if (onSuccess) {
-          onSuccess("preview");
-        } else {
-          router.push("/inquiry/success?id=preview");
-        }
-        return;
-      }
-
       const payload = {
         ...form,
         has_additional_info: form.has_additional_info === "yes",
