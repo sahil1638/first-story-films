@@ -397,12 +397,6 @@ export async function getAccountById(id: string) {
   };
 }
 
-export async function getAccountEntries(
-  accountId: string,
-  filters: EntryFilterParams = {}
-) {
-  return getEntries({ ...filters, accountId, page: filters.page, limit: filters.limit });
-}
 
 export async function createAccount(payload: { name: string; openingBalance: number; status?: RecordStatus }) {
   await requireManagerOrAdminOrThrow();

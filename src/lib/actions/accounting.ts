@@ -36,6 +36,7 @@ export async function updateCategory(
   id: string,
   updates: { name?: string; status?: string }
 ): Promise<{ success: boolean; error?: string }> {
+  await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
   const { error } = await supabase
     .from("accounting_categories")
@@ -367,88 +368,4 @@ export async function deleteEntry(id: string): Promise<{ success: boolean; error
 
   revalidatePath("/accounting");
   return { success: true };
-}
-
-// ============ CALCULATIONS ============
-
-export async function getAccountTotals(
-  accountId: string
-): Promise<{
-  opening_balance: number;
-  total_in: number;
-  total_out: number;
-  current_balance: number;
-}> {
-  await requireManagerOrAdminOrThrow();
-  const supabase = await createClient();
-
-  const { data: account } = await supabase
-    .from("accounting_accounts")
-    .select("opening_balance")
-    .eq("id", accountId)
-    .single();
-
-  const { data: incomes } = await supabase
-    .from("accounting_entries")
-    .select("amount")
-    .eq("account_id", accountId)
-    .eq("type", "income");
-
-  const { data: expenses } = await supabase
-    .from("accounting_entries")
-    .select("amount")
-    .eq("account_id", accountId)
-    .eq("type", "expense");
-
-  const opening_balance = Number(account?.opening_balance ?? 0);
-  const total_in = (incomes ?? []).reduce((sum, e) => sum + Number(e.amount), 0);
-  const total_out = (expenses ?? []).reduce((sum, e) => sum + Number(e.amount), 0);
-  const current_balance = opening_balance + total_in - total_out;
-
-  return { opening_balance, total_in, total_out, current_balance };
-}
-
-export async function getEntriesTotals(filters?: {
-  type?: string;
-  accountId?: string;
-  dateStart?: string;
-  dateEnd?: string;
-}): Promise<{ total_income: number; total_expense: number; net: number; count: number }> {
-  await requireManagerOrAdminOrThrow();
-  const supabase = await createClient();
-
-  let query = supabase.from("accounting_entries").select("amount, type", { count: "exact" });
-
-  if (filters?.type && filters.type !== "both") {
-    query = query.eq("type", filters.type);
-  }
-
-  if (filters?.accountId) {
-    query = query.eq("account_id", filters.accountId);
-  }
-
-  if (filters?.dateStart) {
-    query = query.gte("entry_date", filters.dateStart);
-  }
-
-  if (filters?.dateEnd) {
-    query = query.lte("entry_date", filters.dateEnd);
-  }
-
-  const { data, count } = await query;
-
-  const total_income = (data ?? [])
-    .filter((e) => e.type === "income")
-    .reduce((sum, e) => sum + Number(e.amount), 0);
-
-  const total_expense = (data ?? [])
-    .filter((e) => e.type === "expense")
-    .reduce((sum, e) => sum + Number(e.amount), 0);
-
-  return {
-    total_income,
-    total_expense,
-    net: total_income - total_expense,
-    count: count ?? 0,
-  };
 }

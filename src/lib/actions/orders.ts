@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { GST_RATE_PERCENT, calculateOrderBilling, computePaymentStatus, formatCurrency } from "@/lib/utils";
+import { GST_RATE_PERCENT, calculateOrderBilling, computePaymentStatus } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
 import type { InvoiceType } from "@/types/database";
 import { requireManagerOrAdminOrThrow } from "@/lib/auth/require-role";
@@ -22,91 +22,6 @@ export async function syncOrderPaymentTotals(supabase: Awaited<ReturnType<typeof
     .from("orders")
     .update({ paid_amount: paidAmount, payment_status })
     .eq("id", orderId);
-
-  if (error) throw new Error(error.message);
-}
-
-async function getOrCreateAccountingAccount(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  name: string
-) {
-  const { data: existing } = await supabase
-    .from("accounting_accounts")
-    .select("id")
-    .eq("name", name)
-    .limit(1)
-    .maybeSingle();
-
-  if (existing?.id) return existing.id as string;
-
-  const { data, error } = await supabase
-    .from("accounting_accounts")
-    .insert({ name, opening_balance: 0, status: "active" })
-    .select("id")
-    .single();
-
-  if (error || !data) throw new Error(error?.message ?? `Failed to create ${name} account`);
-  return data.id as string;
-}
-
-async function getOrCreateAccountingCategory(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  name: string,
-  type: "income" | "expense"
-) {
-  const { data: existing } = await supabase
-    .from("accounting_categories")
-    .select("id")
-    .eq("name", name)
-    .eq("type", type)
-    .limit(1)
-    .maybeSingle();
-
-  if (existing?.id) return existing.id as string;
-
-  const { data, error } = await supabase
-    .from("accounting_categories")
-    .insert({ name, type, status: "active" })
-    .select("id")
-    .single();
-
-  if (error || !data) throw new Error(error?.message ?? `Failed to create ${name} category`);
-  return data.id as string;
-}
-
-async function upsertOrderAccountingEntry(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  payload: {
-    source: "order_payment" | "production_job";
-    sourceId: string;
-    type: "income" | "expense";
-    categoryName: string;
-    amount: number;
-    entryDate: string;
-    remarks: string;
-    createdBy?: string | null;
-  }
-) {
-  const accountId = await getOrCreateAccountingAccount(supabase, "Order Transactions");
-  const categoryId = await getOrCreateAccountingCategory(supabase, payload.categoryName, payload.type);
-
-  await supabase
-    .from("accounting_entries")
-    .delete()
-    .eq("source", payload.source)
-    .eq("source_id", payload.sourceId);
-
-  const { error } = await supabase.from("accounting_entries").insert({
-    type: payload.type,
-    account_id: accountId,
-    category_id: categoryId,
-    amount: payload.amount,
-    entry_date: payload.entryDate,
-    remarks: payload.remarks,
-    source: payload.source,
-    source_id: payload.sourceId,
-    created_by: payload.createdBy ?? null,
-  });
 
   if (error) throw new Error(error.message);
 }
@@ -222,6 +137,7 @@ export async function addPayment(
   paymentDate: string,
   notes?: string
 ) {
+  await requireManagerOrAdminOrThrow();
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new Error("Enter a payment amount greater than zero");
   }
@@ -230,97 +146,36 @@ export async function addPayment(
   }
 
   const supabase = await createClient();
-  const [{ data: order }, { data: payments }] = await Promise.all([
-    supabase.from("orders").select("total_amount").eq("id", orderId).single(),
-    supabase.from("payments").select("amount").eq("order_id", orderId),
-  ]);
-
-  if (!order) {
-    throw new Error("Order not found");
-  }
-
-  const totalAmount = Number(order.total_amount);
-  if (totalAmount <= 0) {
-    throw new Error("Set the order total first before adding payments");
-  }
-
-  const paidAmount = (payments ?? []).reduce((sum, payment) => sum + Number(payment.amount), 0);
-  const remaining = totalAmount - paidAmount;
-  if (remaining <= 0) {
-    throw new Error("This order is already fully paid.");
-  }
-  if (amount > remaining) {
-    throw new Error(`Payment cannot exceed remaining amount of ${formatCurrency(remaining)}.`);
-  }
-
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  let createdBy: string | null = user?.id ?? null;
-  if (createdBy) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("id", createdBy)
-      .maybeSingle();
-    if (!profile) createdBy = null;
-  }
-
-  const receiptNumber = `RCP-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-
-  const { data: payment, error: payError } = await supabase
-    .from("payments")
-    .insert({
-      order_id: orderId,
-      amount,
-      payment_date: paymentDate,
-      receipt_number: receiptNumber,
-      notes: notes || null,
-      created_by: createdBy,
-    })
-    .select("id")
-    .single();
-
-  if (payError || !payment) throw new Error(payError?.message ?? "Failed to add payment");
-
-  await upsertOrderAccountingEntry(supabase, {
-    source: "order_payment",
-    sourceId: payment.id,
-    type: "income",
-    categoryName: "Order Payments",
+  const { data: receiptNumber, error } = await supabase.rpc("add_order_payment", {
+    order_id: orderId,
     amount,
-    entryDate: paymentDate,
-    remarks: notes?.trim() || "Order payment",
-    createdBy,
+    payment_date: paymentDate,
+    notes: notes || null,
+    created_by_user: user?.id ?? null,
   });
 
-  await syncOrderPaymentTotals(supabase, orderId);
+  if (error) throw new Error(error.message || "Failed to add payment");
 
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
   revalidatePath("/accounting");
-  return receiptNumber;
+  return receiptNumber as string;
 }
 
 export async function deletePayment(paymentId: string, orderId: string) {
   await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("payments")
-    .delete()
-    .eq("id", paymentId)
-    .eq("order_id", orderId);
+  const { error } = await supabase.rpc("delete_order_payment", {
+    payment_id: paymentId,
+    order_id: orderId,
+  });
 
   if (error) throw new Error(error.message);
 
-  await supabase
-    .from("accounting_entries")
-    .delete()
-    .eq("source", "order_payment")
-    .eq("source_id", paymentId);
-
-  await syncOrderPaymentTotals(supabase, orderId);
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
   revalidatePath("/accounting");
@@ -342,53 +197,16 @@ export async function updatePayment(
   }
 
   const supabase = await createClient();
-  const [{ data: order }, { data: currentPayment }, { data: payments }] = await Promise.all([
-    supabase.from("orders").select("total_amount").eq("id", orderId).single(),
-    supabase
-      .from("payments")
-      .select("id, created_by")
-      .eq("id", paymentId)
-      .eq("order_id", orderId)
-      .single(),
-    supabase.from("payments").select("id, amount").eq("order_id", orderId),
-  ]);
-
-  if (!order) throw new Error("Order not found");
-  if (!currentPayment) throw new Error("Payment not found");
-
-  const totalAmount = Number(order.total_amount);
-  const paidExcludingCurrent = (payments ?? [])
-    .filter((payment) => payment.id !== paymentId)
-    .reduce((sum, payment) => sum + Number(payment.amount), 0);
-
-  if (paidExcludingCurrent + amount > totalAmount) {
-    throw new Error(`Payment cannot exceed remaining amount of ${formatCurrency(totalAmount - paidExcludingCurrent)}.`);
-  }
-
-  const { error } = await supabase
-    .from("payments")
-    .update({
-      amount,
-      payment_date: paymentDate,
-      notes: notes?.trim() || null,
-    })
-    .eq("id", paymentId)
-    .eq("order_id", orderId);
+  const { error } = await supabase.rpc("update_order_payment", {
+    payment_id: paymentId,
+    order_id: orderId,
+    amount,
+    payment_date: paymentDate,
+    notes: notes?.trim() || null,
+  });
 
   if (error) throw new Error(error.message);
 
-  await upsertOrderAccountingEntry(supabase, {
-    source: "order_payment",
-    sourceId: paymentId,
-    type: "income",
-    categoryName: "Order Payments",
-    amount,
-    entryDate: paymentDate,
-    remarks: notes?.trim() || "Order payment",
-    createdBy: currentPayment.created_by ?? null,
-  });
-
-  await syncOrderPaymentTotals(supabase, orderId);
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
   revalidatePath("/accounting");
@@ -401,35 +219,27 @@ export async function addProductionJob(
   payableAmount: number
 ) {
   await requireManagerOrAdminOrThrow();
+  if (!agencyId || !serviceId) {
+    throw new Error("Select agency and service");
+  }
+  if (!Number.isFinite(payableAmount) || payableAmount <= 0) {
+    throw new Error("Enter a valid payable amount");
+  }
+
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { data: job, error } = await supabase
-    .from("production_jobs")
-    .insert({
-      order_id: orderId,
-      agency_id: agencyId,
-      service_id: serviceId,
-      payable_amount: payableAmount,
-      created_by: user?.id ?? null,
-    })
-    .select("id, created_at")
-    .single();
-
-  if (error || !job) throw new Error(error?.message ?? "Failed to add production job");
-
-  await upsertOrderAccountingEntry(supabase, {
-    source: "production_job",
-    sourceId: job.id,
-    type: "expense",
-    categoryName: "Production Expenses",
-    amount: payableAmount,
-    entryDate: String(job.created_at).slice(0, 10),
-    remarks: "Production expense",
-    createdBy: user?.id ?? null,
+  const { error } = await supabase.rpc("add_production_job", {
+    order_id: orderId,
+    agency_id: agencyId,
+    service_id: serviceId,
+    payable_amount: payableAmount,
+    created_by_user: user?.id ?? null,
   });
+
+  if (error) throw new Error(error.message);
 
   revalidatePath(`/orders/${orderId}`);
   revalidatePath("/accounting");
@@ -467,38 +277,16 @@ export async function updateProductionJob(
   }
 
   const supabase = await createClient();
-  const { data: currentJob } = await supabase
-    .from("production_jobs")
-    .select("id, created_at, created_by")
-    .eq("id", jobId)
-    .eq("order_id", orderId)
-    .single();
-
-  if (!currentJob) throw new Error("Production job not found");
-
-  const { error } = await supabase
-    .from("production_jobs")
-    .update({
-      agency_id: agencyId,
-      service_id: serviceId,
-      payable_amount: payableAmount,
-      status,
-    })
-    .eq("id", jobId)
-    .eq("order_id", orderId);
+  const { error } = await supabase.rpc("update_production_job", {
+    job_id: jobId,
+    order_id: orderId,
+    agency_id: agencyId,
+    service_id: serviceId,
+    payable_amount: payableAmount,
+    status: status,
+  });
 
   if (error) throw new Error(error.message);
-
-  await upsertOrderAccountingEntry(supabase, {
-    source: "production_job",
-    sourceId: jobId,
-    type: "expense",
-    categoryName: "Production Expenses",
-    amount: payableAmount,
-    entryDate: String(currentJob.created_at).slice(0, 10),
-    remarks: "Production expense",
-    createdBy: currentJob.created_by ?? null,
-  });
 
   revalidatePath(`/orders/${orderId}`);
   revalidatePath("/accounting");
@@ -508,19 +296,12 @@ export async function deleteProductionJob(jobId: string, orderId: string) {
   await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
 
-  const { error } = await supabase
-    .from("production_jobs")
-    .delete()
-    .eq("id", jobId)
-    .eq("order_id", orderId);
+  const { error } = await supabase.rpc("delete_production_job", {
+    job_id: jobId,
+    order_id: orderId,
+  });
 
   if (error) throw new Error(error.message);
-
-  await supabase
-    .from("accounting_entries")
-    .delete()
-    .eq("source", "production_job")
-    .eq("source_id", jobId);
 
   revalidatePath(`/orders/${orderId}`);
   revalidatePath("/accounting");

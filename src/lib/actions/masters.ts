@@ -38,29 +38,6 @@ export async function deleteMaster(table: TableName, id: string) {
   revalidatePath(`/masters/${table === "crew_members" ? "crew" : table}`);
 }
 
-export async function syncAgencyServices(agencyId: string, serviceIds: string[]) {
-  await requireManagerOrAdminOrThrow();
-  const supabase = await createClient();
-  await supabase.from("agency_services").delete().eq("agency_id", agencyId);
-  if (serviceIds.length > 0) {
-    await supabase.from("agency_services").insert(
-      serviceIds.map((service_id) => ({ agency_id: agencyId, service_id }))
-    );
-  }
-  revalidatePath("/masters/agencies");
-}
-
-export async function syncCrewServices(crewId: string, serviceIds: string[]) {
-  await requireManagerOrAdminOrThrow();
-  const supabase = await createClient();
-  await supabase.from("crew_member_services").delete().eq("crew_member_id", crewId);
-  if (serviceIds.length > 0) {
-    await supabase.from("crew_member_services").insert(
-      serviceIds.map((service_id) => ({ crew_member_id: crewId, service_id }))
-    );
-  }
-  revalidatePath("/masters/crew");
-}
 
 export async function updateSettings(key: string, value: string) {
   await requireManagerOrAdminOrThrow();
