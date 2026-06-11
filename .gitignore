@@ -42,3 +42,8 @@ next-env.d.ts
 
 # supabase
 supabase/.temp
+
+# Audit files
+AUDIT_REPORT.md
+TECHNICAL_AUDIT_REPORT.md
+
