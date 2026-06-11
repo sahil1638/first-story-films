@@ -72,11 +72,15 @@ export function PublicLeadForm({
   onSuccess,
   onCancel,
   initialData,
+  events: initialEvents,
+  services: initialServices,
 }: {
   isDashboard?: boolean;
   onSuccess?: (leadId: string) => void;
   onCancel?: () => void;
   initialData?: LeadFormInput & { id: string };
+  events?: Event[];
+  services?: Service[];
 } = {}) {
   const router = useRouter();
   const [step, setStep] = useState(1);
@@ -114,8 +118,8 @@ export function PublicLeadForm({
     return [];
   });
 
-  const [events, setEvents] = useState<Event[]>([]);
-  const [services, setServices] = useState<Service[]>([]);
+  const [events, setEvents] = useState<Event[]>(initialEvents ?? []);
+  const [services, setServices] = useState<Service[]>(initialServices ?? []);
   const [loading, setLoading] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_, setError] = useState("");
@@ -130,6 +134,10 @@ export function PublicLeadForm({
   }
 
   useEffect(() => {
+    if (initialEvents && initialEvents.length > 0 && initialServices && initialServices.length > 0) {
+      return;
+    }
+
     const supabase = createClient();
     let isMounted = true;
     Promise.all([
@@ -138,15 +146,19 @@ export function PublicLeadForm({
     ]).then(([ev, sv]) => {
       if (isMounted) {
         setTimeout(() => {
-          setEvents(ev.data ?? []);
-          setServices(sv.data ?? []);
+          if (!initialEvents || initialEvents.length === 0) {
+            setEvents(ev.data ?? []);
+          }
+          if (!initialServices || initialServices.length === 0) {
+            setServices(sv.data ?? []);
+          }
         }, 0);
       }
     });
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [initialEvents, initialServices]);
 
   useEffect(() => {
     const count = Math.min(Math.max(form.functions_count, 1), 30);

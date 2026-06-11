@@ -1,3 +1,4 @@
+import { createClient } from "@/lib/supabase/server";
 import { PublicLeadForm } from "@/components/leads/public-lead-form";
 
 export const metadata = {
@@ -8,10 +9,19 @@ export const metadata = {
   },
 };
 
-export default function InquiryPage() {
+export default async function InquiryPage() {
+  const supabase = await createClient();
+  const [eventsRes, servicesRes] = await Promise.all([
+    supabase.from("events").select("*").eq("status", "active"),
+    supabase.from("services").select("*").eq("status", "active"),
+  ]);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-stone-50 to-amber-50/30 py-10 px-4">
-      <PublicLeadForm />
+      <PublicLeadForm
+        events={eventsRes.data ?? []}
+        services={servicesRes.data ?? []}
+      />
     </div>
   );
 }

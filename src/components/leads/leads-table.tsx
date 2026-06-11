@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { ClickableRow } from "@/components/ui/clickable-row";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
@@ -12,90 +12,111 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Pagination } from "@/components/ui/pagination";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { BUDGET_RANGES } from "@/lib/constants";
 
 interface LeadsTableProps {
   leads: Lead[];
+  totalItems: number;
 }
 
-export function LeadsTable({ leads }: LeadsTableProps) {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [budgetFilter, setBudgetFilter] = useState("all");
-  const [functionsFilter, setFunctionsFilter] = useState("all");
-  const [dateStart, setDateStart] = useState("");
-  const [dateEnd, setDateEnd] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
+export function LeadsTable({ leads, totalItems }: LeadsTableProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Parse current URL states
+  const urlPage = Math.max(1, Number(searchParams.get("page")) || 1);
+  const urlSearch = searchParams.get("search") ?? "";
+  const urlStatus = searchParams.get("status") ?? "all";
+  const urlBudget = searchParams.get("budget") ?? "all";
+  const urlFunctions = searchParams.get("functions") ?? "all";
+  const urlDateStart = searchParams.get("dateStart") ?? "";
+  const urlDateEnd = searchParams.get("dateEnd") ?? "";
+
   const ITEMS_PER_PAGE = 20;
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
 
+  // Local state for immediate input feedback
+  const [search, setSearch] = useState(urlSearch);
+  const [statusFilter, setStatusFilter] = useState(urlStatus);
+  const [budgetFilter, setBudgetFilter] = useState(urlBudget);
+  const [functionsFilter, setFunctionsFilter] = useState(urlFunctions);
+  const [dateStart, setDateStart] = useState(urlDateStart);
+  const [dateEnd, setDateEnd] = useState(urlDateEnd);
+
+  // Sync state from URL changes (e.g. back button / reset)
   useEffect(() => {
-    setTimeout(() => {
-      setCurrentPage(1);
-    }, 0);
-  }, [search, statusFilter, budgetFilter, functionsFilter, dateStart, dateEnd]);
+    setSearch(urlSearch);
+    setStatusFilter(urlStatus);
+    setBudgetFilter(urlBudget);
+    setFunctionsFilter(urlFunctions);
+    setDateStart(urlDateStart);
+    setDateEnd(urlDateEnd);
+  }, [urlSearch, urlStatus, urlBudget, urlFunctions, urlDateStart, urlDateEnd]);
 
-  const budgetOptions = useMemo(() => {
-    const unique = Array.from(new Set(leads.map(l => l.budget_range).filter(Boolean)));
-    return [
-      { value: "all", label: "All Budgets" },
-      ...unique.sort().map(b => ({ value: b, label: b }))
-    ];
-  }, [leads]);
+  // Helper to build URL with updated search params
+  const updateUrl = (updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    
+    // Always reset page to 1 when search/filters change, unless we are explicitly navigating pages
+    if (!updates.hasOwnProperty("page")) {
+      params.set("page", "1");
+    }
 
-  const functionsOptions = useMemo(() => {
-    const unique = Array.from(new Set(leads.map(l => l.functions_count).filter((f) => f !== null && f !== undefined)));
-    return [
-      { value: "all", label: "All Days" },
-      ...unique.sort((a, b) => a - b).map(f => ({ value: String(f), label: `${f} Day${f !== 1 ? 's' : ''}` }))
-    ];
-  }, [leads]);
-
-  const filteredLeads = useMemo(() => {
-    return (leads ?? []).filter((lead) => {
-      // Search Match
-      const searchLower = search.toLowerCase();
-      const matchesSearch =
-        lead.your_name.toLowerCase().includes(searchLower) ||
-        lead.couple_name.toLowerCase().includes(searchLower) ||
-        lead.contact_number.toLowerCase().includes(searchLower) ||
-        (lead.email ?? "").toLowerCase().includes(searchLower) ||
-        lead.event_location.toLowerCase().includes(searchLower);
-
-      // Status Match
-      const matchesStatus =
-        statusFilter === "all" || lead.status === statusFilter;
-
-      // Budget Match
-      const matchesBudget =
-        budgetFilter === "all" || lead.budget_range === budgetFilter;
-
-      // Functions Count Match
-      const matchesFunctions =
-        functionsFilter === "all" || String(lead.functions_count) === functionsFilter;
-
-      // Date Match
-      const matchesDateStart = !dateStart || lead.wedding_date >= dateStart;
-      const matchesDateEnd = !dateEnd || lead.wedding_date <= dateEnd;
-
-      return matchesSearch && matchesStatus && matchesBudget && matchesFunctions && matchesDateStart && matchesDateEnd;
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === null || value === "all" || value === "") {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
     });
-  }, [leads, search, statusFilter, budgetFilter, functionsFilter, dateStart, dateEnd]);
 
-  const totalPages = Math.ceil(filteredLeads.length / ITEMS_PER_PAGE);
+    router.push(`${pathname}?${params.toString()}`);
+  };
 
-  const displayedLeads = useMemo(() => {
-    return filteredLeads.slice(
-      (currentPage - 1) * ITEMS_PER_PAGE,
-      currentPage * ITEMS_PER_PAGE
-    );
-  }, [filteredLeads, currentPage]);
+  // Debounce search URL sync
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (search === urlSearch) return;
 
-  const hasActiveFilters =
-    search !== "" ||
-    statusFilter !== "all" ||
-    budgetFilter !== "all" ||
-    functionsFilter !== "all" ||
-    dateStart !== "" ||
-    dateEnd !== "";
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    searchTimeoutRef.current = setTimeout(() => {
+      updateUrl({ search });
+    }, 400);
+
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [search, urlSearch]);
+
+  const handleStatusChange = (val: string) => {
+    setStatusFilter(val);
+    updateUrl({ status: val });
+  };
+
+  const handleBudgetChange = (val: string) => {
+    setBudgetFilter(val);
+    updateUrl({ budget: val });
+  };
+
+  const handleFunctionsChange = (val: string) => {
+    setFunctionsFilter(val);
+    updateUrl({ functions: val });
+  };
+
+  const handleDateStartChange = (val: string) => {
+    setDateStart(val);
+    updateUrl({ dateStart: val });
+  };
+
+  const handleDateEndChange = (val: string) => {
+    setDateEnd(val);
+    updateUrl({ dateEnd: val });
+  };
 
   const clearFilters = () => {
     setSearch("");
@@ -104,7 +125,37 @@ export function LeadsTable({ leads }: LeadsTableProps) {
     setFunctionsFilter("all");
     setDateStart("");
     setDateEnd("");
+    router.push(pathname);
   };
+
+  const handlePageChange = (page: number) => {
+    updateUrl({ page: String(page) });
+  };
+
+  const budgetOptions = useMemo(() => {
+    return [
+      { value: "all", label: "All Budgets" },
+      ...BUDGET_RANGES.map((b) => ({ value: b, label: b })),
+    ];
+  }, []);
+
+  const functionsOptions = useMemo(() => {
+    return [
+      { value: "all", label: "All Days" },
+      ...Array.from({ length: 10 }, (_, i) => ({
+        value: String(i + 1),
+        label: `${i + 1} Day${i !== 0 ? "s" : ""}`,
+      })),
+    ];
+  }, []);
+
+  const hasActiveFilters =
+    urlSearch !== "" ||
+    urlStatus !== "all" ||
+    urlBudget !== "all" ||
+    urlFunctions !== "all" ||
+    urlDateStart !== "" ||
+    urlDateEnd !== "";
 
   return (
     <Card className="p-0 md:p-0 overflow-hidden">
@@ -122,25 +173,25 @@ export function LeadsTable({ leads }: LeadsTableProps) {
             label="From Date"
             type="date"
             value={dateStart}
-            onChange={(e) => setDateStart(e.target.value)}
+            onChange={(e) => handleDateStartChange(e.target.value)}
           />
           <Input
             label="To Date"
             type="date"
             value={dateEnd}
-            onChange={(e) => setDateEnd(e.target.value)}
+            onChange={(e) => handleDateEndChange(e.target.value)}
           />
           <Select
             label="Budget"
             options={budgetOptions}
             value={budgetFilter}
-            onChange={(e) => setBudgetFilter(e.target.value)}
+            onChange={(e) => handleBudgetChange(e.target.value)}
           />
           <Select
             label="Function Days"
             options={functionsOptions}
             value={functionsFilter}
-            onChange={(e) => setFunctionsFilter(e.target.value)}
+            onChange={(e) => handleFunctionsChange(e.target.value)}
           />
           <Select
             label="Status"
@@ -151,7 +202,7 @@ export function LeadsTable({ leads }: LeadsTableProps) {
               { value: "cancelled", label: "Cancelled" },
             ]}
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => handleStatusChange(e.target.value)}
           />
           <div className="flex gap-2 shrink-0">
             <Button
@@ -183,7 +234,7 @@ export function LeadsTable({ leads }: LeadsTableProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {displayedLeads.map((lead) => (
+            {leads.map((lead) => (
               <ClickableRow key={lead.id} href={`/leads/${lead.id}`} className="hover:bg-stone-50/50 group">
                 <td className="px-4 py-1.5 md:px-5">
                   <span className="font-medium text-amber-700">
@@ -207,17 +258,17 @@ export function LeadsTable({ leads }: LeadsTableProps) {
             ))}
           </tbody>
         </table>
-        {filteredLeads.length === 0 && (
+        {leads.length === 0 && (
           <p className="py-8 text-center text-stone-500">
             {hasActiveFilters ? "No matching leads found." : "No leads yet."}
           </p>
         )}
       </div>
       <Pagination
-        currentPage={currentPage}
+        currentPage={urlPage}
         totalPages={totalPages}
-        onPageChange={setCurrentPage}
-        totalItems={filteredLeads.length}
+        onPageChange={handlePageChange}
+        totalItems={totalItems}
         itemsPerPage={ITEMS_PER_PAGE}
       />
     </Card>
