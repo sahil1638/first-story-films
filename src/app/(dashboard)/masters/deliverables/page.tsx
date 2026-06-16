@@ -1,11 +1,10 @@
-import { createClient } from "@/lib/supabase/server";
-import { requireManagerOrAdmin } from "@/lib/auth/require-role";
+import { requireManagerOrAdmin } from "@/lib/auth/ui-guards";
 import { MasterCrud } from "@/components/masters/master-crud";
+import { getDeliverables } from "@/lib/data/masters";
 
 export default async function DeliverablesMasterPage() {
   await requireManagerOrAdmin();
-  const supabase = await createClient();
-  const { data } = await supabase.from("deliverables").select("*").order("created_at", { ascending: false });
+  const deliverables = await getDeliverables();
 
   return (
     <MasterCrud
@@ -18,7 +17,7 @@ export default async function DeliverablesMasterPage() {
         { key: "status", label: "Status" },
         { key: "created_at", label: "Created" },
       ]}
-      items={(data ?? []) as Record<string, unknown>[]}
+      items={deliverables as Record<string, unknown>[]}
     />
   );
 }

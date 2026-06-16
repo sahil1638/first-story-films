@@ -1,12 +1,11 @@
-import { createClient } from "@/lib/supabase/server";
-import { requireManagerOrAdmin } from "@/lib/auth/require-role";
+import { requireManagerOrAdmin } from "@/lib/auth/ui-guards";
 import { SettingsForm } from "@/components/settings/settings-form";
+import { getSettings } from "@/lib/data/masters";
 
 export default async function SettingsPage() {
   await requireManagerOrAdmin();
-  const supabase = await createClient();
-  const { data } = await supabase.from("settings").select("*");
-  const map = Object.fromEntries((data ?? []).map((s) => [s.key, s.value]));
+  const data = await getSettings();
+  const map = Object.fromEntries(data.map((s) => [s.key, s.value]));
 
   return (
     <div>

@@ -3,10 +3,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileText, Edit2, X } from "lucide-react";
+import { updateAdminNotes } from "@/lib/actions/admin-notes";
 
 interface AdminNotesProps {
   recordId: string;
@@ -58,16 +58,7 @@ export function AdminNotes({ recordId, table, initialNotes }: AdminNotesProps) {
     setError("");
 
     try {
-      const supabase = createClient();
-      const { error: updateError } = await supabase
-        .from(table)
-        .update({ admin_notes: notes.trim() || null })
-        .eq("id", recordId);
-
-      if (updateError) {
-        throw new Error(updateError.message || "Failed to save notes");
-      }
-
+      await updateAdminNotes(table, recordId, notes.trim() || null);
       setIsEditing(false);
       router.refresh();
     } catch (err) {

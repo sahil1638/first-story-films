@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getProfile } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/data/users";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 
 export default async function DashboardLayout({
@@ -7,7 +7,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const profile = await getProfile();
+  const profile = await getCurrentUserProfile();
   if (!profile) redirect("/login");
 
   return (

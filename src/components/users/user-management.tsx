@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { createUser, updateUserDetails, changeUserPassword, deleteUser } from "@/lib/actions/users";
-import { createClient } from "@/lib/supabase/client";
 import type { Profile, UserRole } from "@/types/database";
 
 const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
@@ -19,10 +18,15 @@ const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
   { value: "sales", label: "Sales" },
 ];
 
-export function UserManagement({ users }: { users: Profile[] }) {
+export function UserManagement({
+  users,
+  currentUserId,
+}: {
+  users: Profile[];
+  currentUserId: string | null;
+}) {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [error, setError] = useState<string>("");
 
   // Add User Modal State
@@ -65,11 +69,6 @@ export function UserManagement({ users }: { users: Profile[] }) {
     setTimeout(() => {
       setMounted(true);
     }, 0);
-    // Resolve active logged-in user id
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setCurrentUserId(user.id);
-    });
   }, []);
 
   // Lock body scroll when any modal is open
@@ -209,6 +208,8 @@ export function UserManagement({ users }: { users: Profile[] }) {
     }
   }
 
+
+
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-200 pb-5 mb-6">
@@ -289,6 +290,8 @@ export function UserManagement({ users }: { users: Profile[] }) {
                         >
                           <Key className="h-4 w-4 text-amber-600" />
                         </Button>
+
+
 
                         <Button
                           size="sm"
