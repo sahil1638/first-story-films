@@ -275,13 +275,17 @@ export function AccountsTab({ accounts, entries }: AccountsTabProps) {
                 variant="outline"
                 size="sm"
                 onClick={handleExport}
-                tooltip="Export"
+                tooltip="Export filtered accounts (Capped at 1000 rows)"
                 className="h-10 px-4 flex items-center justify-center gap-2"
               >
                 <Download className="h-4 w-4" />
                 Export
               </Button>
             </div>
+          </div>
+          <div className="mt-2 flex justify-between items-center text-xs text-stone-500 px-1">
+            <span>Showing {filteredAccounts.length} accounts</span>
+            <span>Exports are capped at 1000 rows.</span>
           </div>
         </div>
 

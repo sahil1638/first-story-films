@@ -1,16 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { buildCategoriesCsv } from "@/lib/services/accounting";
-
-const exportCategoriesSchema = z.object({
-  search: z.string().optional(),
-  type: z.enum(["income", "expense", "all"]).optional(),
-  sortBy: z.string().optional(),
-  sortOrder: z.enum(["asc", "desc"]).optional(),
-});
+import { NextRequest } from "next/server";
+import { headers } from "next/headers";
+import { buildCategoriesCsv } from "@/lib/data/accounting";
+import { exportCategoriesSchema } from "@/lib/security/schemas";
+import { handleApiError } from "@/lib/security/api-errors";
+import { requireManagerOrAdminOrThrow } from "@/lib/auth/require-role";
+import { checkDbRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
 
 export async function GET(request: NextRequest) {
   try {
+    const profile = await requireManagerOrAdminOrThrow();
+
+    // Rate limiting: max 5 requests, refilling 1 token every 10 seconds (0.1/sec)
+    const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const userKey = profile ? `user:${profile.id}` : `ip:${ip}`;
+    const allowed = await checkDbRateLimit(rateLimitKey("export", userKey), {
+      maxTokens: 5,
+      refillRatePerSec: 0.1,
+      cost: 1.0,
+      context: "accounting.categories.export",
+    });
+    if (!allowed) {
+      return new Response("Too many export requests. Please try again later.", { status: 429 });
+    }
+
     const params = Object.fromEntries(request.nextUrl.searchParams.entries());
     const filters = exportCategoriesSchema.parse(params);
     const csv = await buildCategoriesCsv({
@@ -19,14 +31,28 @@ export async function GET(request: NextRequest) {
       sortBy: filters.sortBy,
       sortOrder: filters.sortOrder,
     });
-    return new Response(csv, {
+
+    const lines = csv.split("\n");
+    const count = lines.length > 1 ? lines.length - 1 : 0;
+    const filterContext = Object.entries(filters)
+      .filter(([, v]) => v !== undefined && v !== "")
+      .map(([k, v]) => `${k}=${v}`)
+      .join("; ");
+
+    const csvWithMetadata = `${csv}\n\n# Export Metadata\n# Total Rows: ${count}\n# Capped Limit: 1000\n# Filters: ${filterContext || "None"}\n# Note: This export is capped at 1000 rows. For larger datasets, a background/streaming export path is planned.\n`;
+
+    return new Response(csvWithMetadata, {
       status: 200,
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": "attachment; filename=accounting-categories.csv",
+        "X-Export-Row-Count": String(count),
+        "X-Export-Limit": "1000",
+        "X-Export-Warning": "Export is capped at 1000 rows. Refine filters if needed.",
+        "X-Export-Filters": filterContext || "none",
       },
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to export categories" }, { status: 400 });
+    return handleApiError(error, { context: "accounting.categories.export" });
   }
 }

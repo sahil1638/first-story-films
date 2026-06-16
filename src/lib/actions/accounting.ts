@@ -1,6 +1,5 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { requireManagerOrAdminOrThrow } from "@/lib/auth/require-role";
 import type { AccountingEntry, AccountingAccount, AccountingCategory } from "@/types/database";
@@ -15,16 +14,16 @@ import {
 } from "@/lib/security/schemas";
 import { withSafeError } from "@/lib/security/errors";
 import {
-  createCategory as serviceCreateCategory,
-  updateCategory as serviceUpdateCategory,
-  deleteCategory as serviceDeleteCategory,
-  createAccount as serviceCreateAccount,
-  updateAccount as serviceUpdateAccount,
-  deleteAccount as serviceDeleteAccount,
-  createEntry as serviceCreateEntry,
-  updateEntry as serviceUpdateEntry,
-  deleteEntry as serviceDeleteEntry,
-} from "@/lib/services/accounting";
+  createCategory,
+  updateCategory as dataUpdateCategory,
+  deleteCategory as dataDeleteCategory,
+  createAccount,
+  updateAccount as dataUpdateAccount,
+  deleteAccount as dataDeleteAccount,
+  createEntry,
+  updateEntry as dataUpdateEntry,
+  deleteEntry as dataDeleteEntry,
+} from "@/lib/data/accounting";
 
 // ============ CATEGORIES ============
 
@@ -37,10 +36,10 @@ export async function addCategory(
     const parsed = addCategorySchema.parse({ name, type, status });
     await requireManagerOrAdminOrThrow();
 
-    const result = await serviceCreateCategory({
+    const result = await createCategory({
       name: parsed.name,
       type: parsed.type,
-      status: parsed.status as any,
+      status: parsed.status,
     });
 
     if (result.success) {
@@ -58,7 +57,7 @@ export async function updateCategory(
     const parsed = updateCategorySchema.parse({ id, updates });
     await requireManagerOrAdminOrThrow();
 
-    const result = await serviceUpdateCategory(parsed.id, parsed.updates as any);
+    const result = await dataUpdateCategory(parsed.id, parsed.updates);
     if (result.success) {
       revalidatePath("/accounting");
     }
@@ -71,7 +70,7 @@ export async function deleteCategory(id: string): Promise<{ success: boolean; er
     const parsedId = uuidSchema.parse(id);
     await requireManagerOrAdminOrThrow();
 
-    const result = await serviceDeleteCategory(parsedId);
+    const result = await dataDeleteCategory(parsedId);
     if (result.success) {
       revalidatePath("/accounting");
     }
@@ -89,7 +88,7 @@ export async function addAccount(
     const parsed = addAccountSchema.parse({ name, openingBalance });
     await requireManagerOrAdminOrThrow();
 
-    const result = await serviceCreateAccount({
+    const result = await createAccount({
       name: parsed.name,
       openingBalance: parsed.openingBalance,
     });
@@ -109,7 +108,7 @@ export async function updateAccount(
     const parsed = updateAccountSchema.parse({ id, updates });
     await requireManagerOrAdminOrThrow();
 
-    const result = await serviceUpdateAccount(parsed.id, parsed.updates as any);
+    const result = await dataUpdateAccount(parsed.id, parsed.updates);
     if (result.success) {
       revalidatePath("/accounting");
     }
@@ -122,7 +121,7 @@ export async function deleteAccount(id: string): Promise<{ success: boolean; err
     const parsedId = uuidSchema.parse(id);
     await requireManagerOrAdminOrThrow();
 
-    const result = await serviceDeleteAccount(parsedId);
+    const result = await dataDeleteAccount(parsedId);
     if (result.success) {
       revalidatePath("/accounting");
     }
@@ -151,7 +150,7 @@ export async function addEntry(
     });
     await requireManagerOrAdminOrThrow();
 
-    const result = await serviceCreateEntry({
+    const result = await createEntry({
       type: parsed.type,
       accountId: parsed.accountId,
       categoryId: parsed.categoryId,
@@ -178,19 +177,18 @@ export async function updateEntry(
   return withSafeError(async () => {
     const parsed = updateEntrySchema.parse({ id, updates });
     await requireManagerOrAdminOrThrow();
-    const supabase = await createClient();
 
-    // Execute transactional cascade update RPC, returning affected metadata
-    const { data, error: updateError } = await supabase.rpc("update_accounting_entry_cascade", {
-      entry_id: parsed.id,
-      new_amount: parsed.updates.amount !== undefined ? parsed.updates.amount : null,
-      new_entry_date: parsed.updates.entry_date !== undefined ? parsed.updates.entry_date : null,
-      new_remarks: parsed.updates.remarks !== undefined ? parsed.updates.remarks : null,
+    const result = await dataUpdateEntry(parsed.id, {
+      amount: parsed.updates.amount,
+      entryDate: parsed.updates.entry_date,
+      remarks: parsed.updates.remarks,
     });
-    if (updateError) throw new Error(updateError.message);
 
-    // The RPC returns a single row in an array: { out_order_id, out_source, out_source_id }
-    const row = (data as any)?.[0];
+    if (!result.success) {
+      throw new Error(result.error || "Failed to update accounting entry");
+    }
+
+    const row = result.data;
     const orderId = row?.out_order_id;
     const source = row?.out_source;
 
@@ -212,15 +210,13 @@ export async function deleteEntry(id: string): Promise<{ success: boolean; error
   return withSafeError(async () => {
     const parsedId = uuidSchema.parse(id);
     await requireManagerOrAdminOrThrow();
-    const supabase = await createClient();
 
-    // Call the cascade delete RPC, returning affected metadata
-    const { data, error: deleteError } = await supabase.rpc("delete_accounting_entry_cascade", {
-      entry_id: parsedId,
-    });
-    if (deleteError) throw new Error(deleteError.message);
+    const result = await dataDeleteEntry(parsedId);
+    if (!result.success) {
+      throw new Error(result.error || "Failed to delete accounting entry");
+    }
 
-    const row = (data as any)?.[0];
+    const row = result.data;
     const orderId = row?.out_order_id;
     const source = row?.out_source;
 

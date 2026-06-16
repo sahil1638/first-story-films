@@ -1,6 +1,6 @@
 import { AccountingContent } from "@/components/accounting/accounting-content";
-import { requireManagerOrAdmin } from "@/lib/auth/require-role";
-import { getAccounts, getCategories, getEntries } from "@/lib/services/accounting";
+import { requireManagerOrAdmin } from "@/lib/auth/ui-guards";
+import { getAccounts, getCategories, getEntries } from "@/lib/data/accounting";
 
 export default async function AccountingPage() {
   await requireManagerOrAdmin();

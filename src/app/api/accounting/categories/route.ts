@@ -1,24 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { getCategories, createCategory } from "@/lib/services/accounting";
-
-const categoryFilterSchema = z.object({
-  page: z.string().optional(),
-  limit: z.string().optional(),
-  search: z.string().optional(),
-  sortBy: z.string().optional(),
-  sortOrder: z.enum(["asc", "desc"]).optional(),
-});
-
-const categoryCreateSchema = z.object({
-  name: z.string().min(1),
-  type: z.enum(["income", "expense"]),
-});
+import { getCategories, createCategory } from "@/lib/data/accounting";
+import { categoryCreateRouteSchema, pagedCategoryFilterSchema } from "@/lib/security/schemas";
+import { handleApiError } from "@/lib/security/api-errors";
+import { requireManagerOrAdminOrThrow } from "@/lib/auth/require-role";
 
 export async function GET(request: NextRequest) {
   try {
+    await requireManagerOrAdminOrThrow();
     const params = Object.fromEntries(request.nextUrl.searchParams.entries());
-    const filters = categoryFilterSchema.parse(params);
+    const filters = pagedCategoryFilterSchema.parse(params);
     const result = await getCategories({
       page: filters.page ? Number(filters.page) : 1,
       limit: filters.limit ? Number(filters.limit) : 20,
@@ -28,20 +18,21 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json(result);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid request" }, { status: 400 });
+    return handleApiError(error, { context: "accounting.categories.list" });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    await requireManagerOrAdminOrThrow();
     const body = await request.json();
-    const payload = categoryCreateSchema.parse(body);
+    const payload = categoryCreateRouteSchema.parse(body);
     const result = await createCategory(payload);
     if (!result.success) {
-      return NextResponse.json({ error: result.error ?? "Could not create category" }, { status: 400 });
+      return handleApiError(new Error(result.error ?? "Could not create category"), { context: "accounting.categories.create" });
     }
     return NextResponse.json(result.data);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid payload" }, { status: 400 });
+    return handleApiError(error, { context: "accounting.categories.create" });
   }
 }

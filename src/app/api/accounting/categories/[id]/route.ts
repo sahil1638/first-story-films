@@ -1,47 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { getCategoryById, updateCategory, deleteCategory } from "@/lib/services/accounting";
-
-const categoryUpdateSchema = z.object({
-  name: z.string().min(1).optional(),
-  type: z.enum(["income", "expense"]).optional(),
-});
+import { getCategoryById, updateCategory, deleteCategory } from "@/lib/data/accounting";
+import { categoryUpdateRouteSchema } from "@/lib/security/schemas";
+import { handleApiError } from "@/lib/security/api-errors";
+import { requireManagerOrAdminOrThrow } from "@/lib/auth/require-role";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await requireManagerOrAdminOrThrow();
     const { id } = await params;
     const category = await getCategoryById(id);
-    if (!category) return NextResponse.json({ error: "Category not found" }, { status: 404 });
+    if (!category) return handleApiError(new Error("Category not found"), { context: "accounting.categories.get" });
     return NextResponse.json(category);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to fetch category" }, { status: 400 });
+    return handleApiError(error, { context: "accounting.categories.get" });
   }
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await requireManagerOrAdminOrThrow();
     const { id } = await params;
     const body = await request.json();
-    const payload = categoryUpdateSchema.parse(body);
+    const payload = categoryUpdateRouteSchema.parse(body);
     const result = await updateCategory(id, payload);
     if (!result.success) {
-      return NextResponse.json({ error: result.error ?? "Could not update category" }, { status: 400 });
+      return handleApiError(new Error(result.error ?? "Could not update category"), { context: "accounting.categories.update" });
     }
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid payload" }, { status: 400 });
+    return handleApiError(error, { context: "accounting.categories.update" });
   }
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await requireManagerOrAdminOrThrow();
     const { id } = await params;
     const result = await deleteCategory(id);
     if (!result.success) {
-      return NextResponse.json({ error: result.error ?? "Could not delete category" }, { status: 400 });
+      return handleApiError(new Error(result.error ?? "Could not delete category"), { context: "accounting.categories.delete" });
     }
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to delete category" }, { status: 400 });
+    return handleApiError(error, { context: "accounting.categories.delete" });
   }
 }

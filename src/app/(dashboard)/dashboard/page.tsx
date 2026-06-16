@@ -8,10 +8,10 @@ import {
   Users,
   WalletCards,
 } from "lucide-react";
-import { createClient, getProfile } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { getDashboardData } from "@/lib/data/dashboard";
 
 type OrderRow = {
   id: string;
@@ -45,40 +45,22 @@ type ProductionJobRow = {
 const MONTH_COUNT = 6;
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const profile = await getProfile();
-  const userRole = profile?.role ?? "sales";
-  const canSeeProduction = userRole !== "sales";
-
-  const [
+  const {
     leadsCount,
     quotationsCount,
     ordersCount,
-    ordersResult,
-    accountingResult,
-    productionResult,
-  ] = await Promise.all([
-    supabase.from("leads").select("id", { count: "exact", head: true }),
-    supabase.from("quotations").select("id", { count: "exact", head: true }),
-    supabase.from("orders").select("id", { count: "exact", head: true }),
-    supabase
-      .from("orders")
-      .select("id,couple_name,event_location,status,payment_status,total_amount,paid_amount,wedding_date,created_at")
-      .order("wedding_date", { ascending: true }),
-    supabase
-      .from("accounting_entries")
-      .select("id,type,amount,entry_date,remarks,created_at")
-      .order("entry_date", { ascending: false }),
-    supabase
-      .from("production_jobs")
-      .select("id,status,created_at,orders(id,couple_name),services(name)")
-      .order("created_at", { ascending: false }),
-  ]);
+    orders: rawOrders,
+    accountingEntries: rawAccounting,
+    productionJobs: rawProduction,
+    userRole,
+  } = await getDashboardData();
 
-  const orders = (ordersResult.data ?? []) as OrderRow[];
+  const canSeeProduction = userRole !== "sales";
+
+  const orders = rawOrders as OrderRow[];
   const activeOrders = orders.filter((order) => order.status !== "cancelled");
-  const accountingEntries = (accountingResult.data ?? []) as AccountingEntryRow[];
-  const productionJobs = (productionResult.data ?? []) as ProductionJobRow[];
+  const accountingEntries = rawAccounting as AccountingEntryRow[];
+  const productionJobs = rawProduction as ProductionJobRow[];
 
   const totalBookings = activeOrders.reduce(
     (sum, order) => sum + Number(order.total_amount || 0),
@@ -138,7 +120,7 @@ export default async function DashboardPage() {
   const stats = [
     {
       label: "Pending Leads",
-      value: leadsCount.count ?? 0,
+      value: leadsCount,
       icon: Users,
       href: "/leads",
       accent: "border-l-orange-500",
@@ -146,7 +128,7 @@ export default async function DashboardPage() {
     },
     {
       label: "Quotations",
-      value: quotationsCount.count ?? 0,
+      value: quotationsCount,
       icon: FileText,
       href: "/quotations",
       accent: "border-l-blue-500",
@@ -154,7 +136,7 @@ export default async function DashboardPage() {
     },
     {
       label: "Orders",
-      value: ordersCount.count ?? 0,
+      value: ordersCount,
       icon: ShoppingBag,
       href: "/orders",
       accent: "border-l-emerald-500",
@@ -228,14 +210,14 @@ export default async function DashboardPage() {
                   <div key={month.key} className="flex h-full min-w-0 flex-1 flex-col justify-end">
                     <div className="flex flex-1 items-end justify-center gap-1.5">
                       <div
-                        className="group relative w-full max-w-9 rounded-t-md bg-gradient-to-t from-emerald-400 to-emerald-600"
-                        style={{ height: `${Math.max(1, (month.income / maxCashflow) * 100)}%` }}
+                          className="group relative w-full max-w-9 rounded-t-md bg-gradient-to-t from-emerald-400 to-emerald-600"
+                          style={{ height: `${Math.max(1, (month.income / maxCashflow) * 100)}%` }}
                       >
                         <ChartTooltip value={formatCurrency(month.income)} className="bg-emerald-600" />
                       </div>
                       <div
-                        className="group relative w-full max-w-9 rounded-t-md bg-gradient-to-t from-red-300 to-red-600"
-                        style={{ height: `${Math.max(1, (month.expense / maxCashflow) * 100)}%` }}
+                          className="group relative w-full max-w-9 rounded-t-md bg-gradient-to-t from-red-300 to-red-600"
+                          style={{ height: `${Math.max(1, (month.expense / maxCashflow) * 100)}%` }}
                       >
                         <ChartTooltip value={formatCurrency(month.expense)} className="bg-red-600" />
                       </div>

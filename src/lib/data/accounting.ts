@@ -1,16 +1,15 @@
-"use server";
+import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
 import { requireManagerOrAdminOrThrow } from "@/lib/auth/require-role";
 import type {
-  AccountingAccount,
-  AccountingEntry,
   RecordStatus,
 } from "@/types/database";
 
 export type EntryFilterParams = {
   page?: number;
   limit?: number;
+  maxLimit?: number;
   type?: "income" | "expense" | "both";
   accountId?: string;
   categoryId?: string;
@@ -24,6 +23,7 @@ export type EntryFilterParams = {
 export type AccountFilterParams = {
   page?: number;
   limit?: number;
+  maxLimit?: number;
   status?: RecordStatus | "all";
   search?: string;
   sortBy?: string;
@@ -33,11 +33,22 @@ export type AccountFilterParams = {
 export type CategoryFilterParams = {
   page?: number;
   limit?: number;
+  maxLimit?: number;
   type?: "income" | "expense" | "all";
   status?: RecordStatus | "all";
   search?: string;
   sortBy?: string;
   sortOrder?: "asc" | "desc";
+};
+
+export const DEFAULT_PAGE_SIZE = 20;
+export const MAX_PAGE_SIZE = 100;
+export const EXPORT_ROW_LIMIT = 1000;
+
+type AccountingCascadeResult = {
+  out_order_id: string | null;
+  out_source: string | null;
+  out_source_id: string | null;
 };
 
 const sanitizeSort = (sortBy: string | undefined, defaultSort: string) => {
@@ -56,30 +67,14 @@ const sanitizeSort = (sortBy: string | undefined, defaultSort: string) => {
   return defaultSort;
 };
 
-function normalizePagination(page = 1, limit = 20) {
+export function normalizePagination(page = 1, limit = DEFAULT_PAGE_SIZE, maxLimit = MAX_PAGE_SIZE) {
   const pageNumber = Math.max(1, Number(page) || 1);
-  const pageSize = Math.max(1, Number(limit) || 20);
+  const pageSize = Math.min(maxLimit, Math.max(1, Number(limit) || DEFAULT_PAGE_SIZE));
   return { page: pageNumber, limit: pageSize, from: (pageNumber - 1) * pageSize, to: pageNumber * pageSize - 1 };
 }
 
 function normalizeStatus(status?: RecordStatus | "all") {
   return status === "all" || !status ? null : status;
-}
-
-
-function getSummaryValues(entries: Pick<AccountingEntry, "type" | "amount">[]) {
-  const totalIncome = entries
-    .filter((entry) => entry.type === "income")
-    .reduce((sum, entry) => sum + Number(entry.amount), 0);
-  const totalExpense = entries
-    .filter((entry) => entry.type === "expense")
-    .reduce((sum, entry) => sum + Number(entry.amount), 0);
-  return {
-    total_income: totalIncome,
-    total_expense: totalExpense,
-    net: totalIncome - totalExpense,
-    count: entries.length,
-  };
 }
 
 function buildEntryQuery<T extends {
@@ -113,7 +108,7 @@ function buildEntryQuery<T extends {
 export async function getEntries(filters: EntryFilterParams = {}) {
   await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
-  const pagination = normalizePagination(filters.page, filters.limit);
+  const pagination = normalizePagination(filters.page, filters.limit, filters.maxLimit);
 
   let query = supabase
     .from("accounting_entries")
@@ -164,11 +159,22 @@ export async function getEntries(filters: EntryFilterParams = {}) {
 export async function getEntriesSummary(filters: EntryFilterParams = {}) {
   await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
-  let query = supabase.from("accounting_entries").select("type,amount", { count: "exact" });
-  query = buildEntryQuery(filters, query);
-  const { data, error } = await query;
+  const { data, error } = await supabase.rpc("get_accounting_entries_summary", {
+    p_type: filters.type && filters.type !== "both" ? filters.type : null,
+    p_account_id: filters.accountId || null,
+    p_category_id: filters.categoryId || null,
+    p_date_from: filters.dateFrom || null,
+    p_date_to: filters.dateTo || null,
+    p_search: filters.search || null,
+  });
   if (error) throw new Error(error.message);
-  return getSummaryValues(data ?? []);
+  const summary = Array.isArray(data) ? data[0] : data;
+  return {
+    total_income: Number(summary?.total_income ?? 0),
+    total_expense: Number(summary?.total_expense ?? 0),
+    net: Number(summary?.net ?? 0),
+    count: Number(summary?.count ?? 0),
+  };
 }
 
 export async function createEntry(payload: {
@@ -252,72 +258,43 @@ export async function getEntryById(id: string) {
 }
 
 export async function updateEntry(id: string, payload: {
-  type?: "income" | "expense";
-  accountId?: string;
-  categoryId?: string;
   amount?: number;
   entryDate?: string;
   remarks?: string | null;
 }) {
   await requireManagerOrAdminOrThrow();
-  const updates: Record<string, unknown> = {};
-  if (payload.type) {
-    if (!["income", "expense"].includes(payload.type)) return { success: false, error: "Invalid entry type" };
-    updates.type = payload.type;
-  }
-  if (payload.amount !== undefined) {
-    if (payload.amount <= 0) return { success: false, error: "Amount must be positive" };
-    updates.amount = payload.amount;
-  }
-  if (payload.accountId) {
-    updates.account_id = payload.accountId;
-    const supabase = await createClient();
-    const { data: account } = await supabase
-      .from("accounting_accounts")
-      .select("status")
-      .eq("id", payload.accountId)
-      .single();
-    if (!account || account.status !== "active") {
-      return { success: false, error: "Account must be active" };
-    }
-  }
-  if (payload.categoryId) {
-    updates.category_id = payload.categoryId;
-    const supabase = await createClient();
-    const { data: category } = await supabase
-      .from("accounting_categories")
-      .select("type,status")
-      .eq("id", payload.categoryId)
-      .single();
-    if (!category || category.status !== "active") {
-      return { success: false, error: "Category must be active" };
-    }
-    if (payload.type && category.type !== payload.type) {
-      return { success: false, error: "Category does not match entry type" };
-    }
-  }
-  if (payload.entryDate) updates.entry_date = payload.entryDate;
-  if (payload.remarks !== undefined) updates.remarks = payload.remarks?.trim() || null;
-
   const supabase = await createClient();
-  const { error } = await supabase.from("accounting_entries").update(updates).eq("id", id);
-  if (error) return { success: false, error: error.message };
-  return { success: true };
+
+  const { data, error: updateError } = await supabase.rpc("update_accounting_entry_cascade", {
+    entry_id: id,
+    new_amount: payload.amount !== undefined ? payload.amount : null,
+    new_entry_date: payload.entryDate !== undefined ? payload.entryDate : null,
+    new_remarks: payload.remarks !== undefined ? payload.remarks : null,
+  });
+
+  if (updateError) return { success: false, error: updateError.message };
+  const row = (data as AccountingCascadeResult[] | null)?.[0];
+  return { success: true, data: row };
 }
 
 export async function deleteEntry(id: string) {
   await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
-  const { error } = await supabase.from("accounting_entries").delete().eq("id", id);
-  if (error) return { success: false, error: error.message };
-  return { success: true };
+
+  const { data, error: deleteError } = await supabase.rpc("delete_accounting_entry_cascade", {
+    entry_id: id,
+  });
+
+  if (deleteError) return { success: false, error: deleteError.message };
+  const row = (data as AccountingCascadeResult[] | null)?.[0];
+  return { success: true, data: row };
 }
 
 export async function getAccounts(filters: AccountFilterParams = {}) {
   await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
-  const pagination = normalizePagination(filters.page, filters.limit);
-  let query = supabase.from("accounting_accounts").select("*");
+  const pagination = normalizePagination(filters.page, filters.limit, filters.maxLimit);
+  let query = supabase.from("accounting_accounts_with_balances").select("*", { count: "exact" });
 
   if (filters.search) {
     query = query.ilike("name", `%${filters.search}%`);
@@ -332,34 +309,14 @@ export async function getAccounts(filters: AccountFilterParams = {}) {
   const { data: accounts, count, error } = await query;
   if (error) throw new Error(error.message);
   const accountRows = accounts ?? [];
-  const accountIds = accountRows.map((account: AccountingAccount) => account.id);
 
-  const totalsResponse = accountIds.length
-    ? await supabase
-        .from("accounting_entries")
-        .select("account_id,type,amount")
-        .in("account_id", accountIds)
-    : { data: [], error: null };
-
-  if (totalsResponse.error) throw new Error(totalsResponse.error.message);
-
-  const totalsByAccount = (totalsResponse.data ?? []).reduce((acc: Record<string, { total_in: number; total_out: number; count: number }>, entry: { account_id: string; type: string; amount: number }) => {
-    const key = entry.account_id;
-    if (!acc[key]) acc[key] = { total_in: 0, total_out: 0, count: 0 };
-    if (entry.type === "income") acc[key].total_in += Number(entry.amount);
-    if (entry.type === "expense") acc[key].total_out += Number(entry.amount);
-    acc[key].count += 1;
-    return acc;
-  }, {});
-
-  const mapped = accountRows.map((account: AccountingAccount) => {
-    const totals = totalsByAccount[account.id] ?? { total_in: 0, total_out: 0, count: 0 };
+  const mapped = accountRows.map((account) => {
     return {
       ...account,
-      total_in: totals.total_in,
-      total_out: totals.total_out,
-      current_balance: Number(account.opening_balance) + totals.total_in - totals.total_out,
-      entry_count: totals.count,
+      total_in: Number(account.total_in ?? 0),
+      total_out: Number(account.total_out ?? 0),
+      current_balance: Number(account.current_balance ?? 0),
+      entry_count: Number(account.entry_count ?? 0),
     };
   });
 
@@ -369,34 +326,22 @@ export async function getAccounts(filters: AccountFilterParams = {}) {
 export async function getAccountById(id: string) {
   await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
-  const { data: account, error } = await supabase.from("accounting_accounts").select("*").eq("id", id).single();
+  const { data: account, error } = await supabase
+    .from("accounting_accounts_with_balances")
+    .select("*")
+    .eq("id", id)
+    .single();
   if (error) throw new Error(error.message);
   if (!account) return null;
 
-  const entriesResponse = await supabase
-    .from("accounting_entries")
-    .select("type, amount")
-    .eq("account_id", id);
-  if (entriesResponse.error) throw new Error(entriesResponse.error.message);
-  const totals = (entriesResponse.data ?? []).reduce(
-    (acc, entry: { type: string; amount: number }) => {
-      if (entry.type === "income") acc.total_in += Number(entry.amount);
-      if (entry.type === "expense") acc.total_out += Number(entry.amount);
-      acc.count += 1;
-      return acc;
-    },
-    { total_in: 0, total_out: 0, count: 0 }
-  );
-
   return {
     ...account,
-    total_in: totals.total_in,
-    total_out: totals.total_out,
-    current_balance: Number(account.opening_balance) + totals.total_in - totals.total_out,
-    entry_count: totals.count,
+    total_in: Number(account.total_in ?? 0),
+    total_out: Number(account.total_out ?? 0),
+    current_balance: Number(account.current_balance ?? 0),
+    entry_count: Number(account.entry_count ?? 0),
   };
 }
-
 
 export async function createAccount(payload: { name: string; openingBalance: number; status?: RecordStatus }) {
   await requireManagerOrAdminOrThrow();
@@ -464,8 +409,8 @@ export async function deleteAccount(id: string) {
 export async function getCategories(filters: CategoryFilterParams = {}) {
   await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
-  const pagination = normalizePagination(filters.page, filters.limit);
-  let query = supabase.from("accounting_categories").select("*");
+  const pagination = normalizePagination(filters.page, filters.limit, filters.maxLimit);
+  let query = supabase.from("accounting_categories").select("*", { count: "exact" });
   if (filters.search) query = query.ilike("name", `%${filters.search}%`);
   if (filters.type && filters.type !== "all") query = query.eq("type", filters.type);
   const status = normalizeStatus(filters.status);
@@ -559,7 +504,14 @@ function toCsv(rows: Record<string, unknown>[], headers: string[]) {
 }
 
 export async function buildEntriesCsv(filters: EntryFilterParams = {}) {
-  const result = await getEntries({ ...filters, page: 1, limit: 1000, sortBy: "entry_date", sortOrder: "desc" });
+  const result = await getEntries({
+    ...filters,
+    page: 1,
+    limit: EXPORT_ROW_LIMIT,
+    maxLimit: EXPORT_ROW_LIMIT,
+    sortBy: "entry_date",
+    sortOrder: "desc",
+  });
   const rows = result.entries.map((entry) => ({
     Date: entry.entry_date,
     Type: entry.type,
@@ -572,7 +524,7 @@ export async function buildEntriesCsv(filters: EntryFilterParams = {}) {
 }
 
 export async function buildAccountsCsv(filters: AccountFilterParams = {}) {
-  const result = await getAccounts(filters);
+  const result = await getAccounts({ ...filters, page: 1, limit: EXPORT_ROW_LIMIT, maxLimit: EXPORT_ROW_LIMIT });
   const rows = result.accounts.map((account) => ({
     Name: account.name,
     OpeningBalance: account.opening_balance,
@@ -585,11 +537,29 @@ export async function buildAccountsCsv(filters: AccountFilterParams = {}) {
 }
 
 export async function buildCategoriesCsv(filters: CategoryFilterParams = {}) {
-  const result = await getCategories(filters);
+  const result = await getCategories({ ...filters, page: 1, limit: EXPORT_ROW_LIMIT, maxLimit: EXPORT_ROW_LIMIT });
   const rows = result.categories.map((category) => ({
     Name: category.name,
     Type: category.type,
     Status: category.status,
   }));
   return toCsv(rows, ["Name", "Type", "Status"]);
+}
+
+export async function getAccountingAccountsForPayments(paymentIds: string[]) {
+  if (paymentIds.length === 0) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("accounting_entries")
+    .select(`
+      source_id,
+      accounting_accounts (
+        name
+      )
+    `)
+    .in("source_id", paymentIds)
+    .eq("source", "order_payment");
+
+  if (error) throw new Error(error.message);
+  return data ?? [];
 }

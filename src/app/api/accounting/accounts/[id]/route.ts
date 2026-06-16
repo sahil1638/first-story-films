@@ -1,48 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { getAccountById, updateAccount, deleteAccount } from "@/lib/services/accounting";
-
-const accountUpdateSchema = z.object({
-  name: z.string().min(1).optional(),
-  openingBalance: z.number().min(0).optional(),
-  status: z.enum(["active", "inactive"]).optional(),
-});
+import { getAccountById, updateAccount, deleteAccount } from "@/lib/data/accounting";
+import { accountUpdateRouteSchema } from "@/lib/security/schemas";
+import { handleApiError } from "@/lib/security/api-errors";
+import { requireManagerOrAdminOrThrow } from "@/lib/auth/require-role";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await requireManagerOrAdminOrThrow();
     const { id } = await params;
     const account = await getAccountById(id);
-    if (!account) return NextResponse.json({ error: "Account not found" }, { status: 404 });
+    if (!account) return handleApiError(new Error("Account not found"), { context: "accounting.accounts.get" });
     return NextResponse.json(account);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to fetch account" }, { status: 400 });
+    return handleApiError(error, { context: "accounting.accounts.get" });
   }
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await requireManagerOrAdminOrThrow();
     const { id } = await params;
     const body = await request.json();
-    const payload = accountUpdateSchema.parse(body);
+    const payload = accountUpdateRouteSchema.parse(body);
     const result = await updateAccount(id, payload);
     if (!result.success) {
-      return NextResponse.json({ error: result.error ?? "Could not update account" }, { status: 400 });
+      return handleApiError(new Error(result.error ?? "Could not update account"), { context: "accounting.accounts.update" });
     }
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid payload" }, { status: 400 });
+    return handleApiError(error, { context: "accounting.accounts.update" });
   }
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    await requireManagerOrAdminOrThrow();
     const { id } = await params;
     const result = await deleteAccount(id);
     if (!result.success) {
-      return NextResponse.json({ error: result.error ?? "Could not delete account" }, { status: 400 });
+      return handleApiError(new Error(result.error ?? "Could not delete account"), { context: "accounting.accounts.delete" });
     }
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to delete account" }, { status: 400 });
+    return handleApiError(error, { context: "accounting.accounts.delete" });
   }
 }
