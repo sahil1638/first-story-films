@@ -19,7 +19,6 @@ import {
   LEAD_STATUSES,
 } from "@/lib/constants";
 import { createLead, type FunctionDayInput, type LeadFormInput, updateLead } from "@/lib/actions/leads";
-import { createClient } from "@/lib/supabase/client";
 import type { Event, Service } from "@/types/database";
 
 type FormState = {
@@ -118,8 +117,8 @@ export function PublicLeadForm({
     return [];
   });
 
-  const [events, setEvents] = useState<Event[]>(initialEvents ?? []);
-  const [services, setServices] = useState<Service[]>(initialServices ?? []);
+  const events = initialEvents ?? [];
+  const services = initialServices ?? [];
   const [loading, setLoading] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_, setError] = useState("");
@@ -132,33 +131,6 @@ export function PublicLeadForm({
     setAlertMessage(msg);
     setAlertOpen(true);
   }
-
-  useEffect(() => {
-    if (initialEvents && initialEvents.length > 0 && initialServices && initialServices.length > 0) {
-      return;
-    }
-
-    const supabase = createClient();
-    let isMounted = true;
-    Promise.all([
-      supabase.from("events").select("*").eq("status", "active"),
-      supabase.from("services").select("*").eq("status", "active"),
-    ]).then(([ev, sv]) => {
-      if (isMounted) {
-        setTimeout(() => {
-          if (!initialEvents || initialEvents.length === 0) {
-            setEvents(ev.data ?? []);
-          }
-          if (!initialServices || initialServices.length === 0) {
-            setServices(sv.data ?? []);
-          }
-        }, 0);
-      }
-    });
-    return () => {
-      isMounted = false;
-    };
-  }, [initialEvents, initialServices]);
 
   useEffect(() => {
     const count = Math.min(Math.max(form.functions_count, 1), 30);

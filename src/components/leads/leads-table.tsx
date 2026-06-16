@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { ClickableRow } from "@/components/ui/clickable-row";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import { LeadRowActions } from "@/components/leads/lead-row-actions";
 import { Card } from "@/components/ui/card";
 import { RotateCcw } from "lucide-react";
-import type { Lead } from "@/types/database";
+import type { Lead, Event, Service } from "@/types/database";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -18,9 +18,11 @@ import { BUDGET_RANGES } from "@/lib/constants";
 interface LeadsTableProps {
   leads: Lead[];
   totalItems: number;
+  events?: Event[];
+  services?: Service[];
 }
 
-export function LeadsTable({ leads, totalItems }: LeadsTableProps) {
+export function LeadsTable({ leads, totalItems, events, services }: LeadsTableProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -47,16 +49,19 @@ export function LeadsTable({ leads, totalItems }: LeadsTableProps) {
 
   // Sync state from URL changes (e.g. back button / reset)
   useEffect(() => {
-    setSearch(urlSearch);
-    setStatusFilter(urlStatus);
-    setBudgetFilter(urlBudget);
-    setFunctionsFilter(urlFunctions);
-    setDateStart(urlDateStart);
-    setDateEnd(urlDateEnd);
+    const timer = setTimeout(() => {
+      setSearch(urlSearch);
+      setStatusFilter(urlStatus);
+      setBudgetFilter(urlBudget);
+      setFunctionsFilter(urlFunctions);
+      setDateStart(urlDateStart);
+      setDateEnd(urlDateEnd);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [urlSearch, urlStatus, urlBudget, urlFunctions, urlDateStart, urlDateEnd]);
 
   // Helper to build URL with updated search params
-  const updateUrl = (updates: Record<string, string | null>) => {
+  const updateUrl = useCallback((updates: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams.toString());
     
     // Always reset page to 1 when search/filters change, unless we are explicitly navigating pages
@@ -73,7 +78,7 @@ export function LeadsTable({ leads, totalItems }: LeadsTableProps) {
     });
 
     router.push(`${pathname}?${params.toString()}`);
-  };
+  }, [pathname, router, searchParams]);
 
   // Debounce search URL sync
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -91,7 +96,7 @@ export function LeadsTable({ leads, totalItems }: LeadsTableProps) {
     return () => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     };
-  }, [search, urlSearch]);
+  }, [search, updateUrl, urlSearch]);
 
   const handleStatusChange = (val: string) => {
     setStatusFilter(val);
@@ -252,7 +257,7 @@ export function LeadsTable({ leads, totalItems }: LeadsTableProps) {
                   </Badge>
                 </td>
                 <td className="px-4 py-1.5 md:px-5 text-right">
-                  <LeadRowActions lead={lead} />
+                  <LeadRowActions lead={lead} events={events} services={services} />
                 </td>
               </ClickableRow>
             ))}

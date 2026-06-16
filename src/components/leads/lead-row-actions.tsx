@@ -9,8 +9,9 @@ import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { deleteLead } from "@/lib/actions/leads";
 import { PublicLeadForm } from "@/components/leads/public-lead-form";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function LeadRowActions({ lead }: { lead: any }) {
+import type { Lead, LeadFunctionDay, Event, Service } from "@/types/database";
+
+export function LeadRowActions({ lead, events, services }: { lead: Lead; events?: Event[]; services?: Service[] }) {
   const router = useRouter();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editConfirmOpen, setEditConfirmOpen] = useState(false);
@@ -57,14 +58,16 @@ export function LeadRowActions({ lead }: { lead: any }) {
   const formattedLead = lead
     ? {
         ...lead,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        function_days: (lead.lead_function_days ?? []).map((fd: any) => ({
+        referral_source: lead.referral_source || "",
+        email: lead.email || undefined,
+        wedding_venue: lead.wedding_venue || undefined,
+        additional_details: lead.additional_details || undefined,
+        function_days: (lead.lead_function_days ?? []).map((fd: LeadFunctionDay) => ({
           day_index: fd.day_index,
           day_date: fd.day_date,
           first_event_id: fd.first_event_id || "",
-          second_event_id: fd.second_event_id || "",
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          service_ids: (fd.lead_function_day_services ?? []).map((s: any) => s.service_id),
+          second_event_id: fd.second_event_id || undefined,
+          service_ids: (fd.lead_function_day_services ?? []).map((s: { service_id: string }) => s.service_id),
         })),
       }
     : undefined;
@@ -127,6 +130,8 @@ export function LeadRowActions({ lead }: { lead: any }) {
                 initialData={formattedLead}
                 onSuccess={handleEditSuccess}
                 onCancel={() => setEditConfirmOpen(false)}
+                events={events}
+                services={services}
               />
             </div>
           </div>

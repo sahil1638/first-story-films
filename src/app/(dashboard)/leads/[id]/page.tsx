@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { AdminNotes } from "@/components/ui/admin-notes";
 import { formatDate } from "@/lib/utils";
@@ -7,6 +6,8 @@ import { LeadActions } from "@/components/leads/lead-actions";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
+import { getLeadById } from "@/lib/data/leads";
+import { getEvents, getServices, getDeliverables } from "@/lib/data/masters";
 import {
   ArrowLeft,
   Calendar,
@@ -33,19 +34,20 @@ export default async function LeadDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
-
-  const { data: lead } = await supabase
-    .from("leads")
-    .select("*, lead_function_days(*, lead_function_day_services(service_id))")
-    .eq("id", id)
-    .single();
-
+  let lead: Awaited<ReturnType<typeof getLeadById>> | null = null;
+  try {
+    lead = await getLeadById(id);
+  } catch {
+    notFound();
+  }
   if (!lead) notFound();
 
-  const { data: events } = await supabase.from("events").select("id, name");
-  const { data: services } = await supabase.from("services").select("id, name");
-  const { data: deliverables } = await supabase.from("deliverables").select("id, title");
+  const [events, services, deliverables] = await Promise.all([
+    getEvents(),
+    getServices(),
+    getDeliverables(),
+  ]);
+
   const eventMap = new Map((events ?? []).map((e) => [e.id, e.name]));
   const serviceMap = new Map((services ?? []).map((s) => [s.id, s.name]));
 
@@ -64,7 +66,7 @@ export default async function LeadDetailPage({
           </Tooltip>
           <h1 className="text-2xl font-bold text-stone-900 leading-none">{lead.couple_name}</h1>
         </div>
-        <LeadActions lead={lead} services={services ?? []} deliverables={deliverables ?? []} />
+        <LeadActions lead={lead} services={services ?? []} deliverables={deliverables ?? []} events={events ?? []} />
       </div>
 
       {/* 3-Column Top Grid */}

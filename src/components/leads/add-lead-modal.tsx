@@ -6,8 +6,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Plus, X } from "lucide-react";
 import { PublicLeadForm } from "@/components/leads/public-lead-form";
+import type { Event, Service } from "@/types/database";
 
-export function AddLeadModal() {
+export function AddLeadModal({ events, services }: { events?: Event[]; services?: Service[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -86,6 +87,8 @@ export function AddLeadModal() {
                 isDashboard={true}
                 onSuccess={handleSuccess}
                 onCancel={reset}
+                events={events}
+                services={services}
               />
             </div>
           </div>

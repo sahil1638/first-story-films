@@ -1,7 +1,5 @@
 "use server";
 
-import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { z } from "zod";
@@ -15,9 +13,19 @@ import {
   PRE_WEDDING_OPTIONS,
   SHOOTING_SIDE_OPTIONS,
 } from "@/lib/constants";
-import { rateLimitKey } from "@/lib/security/rate-limit";
+import { checkDbRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
 import type { LeadSource } from "@/types/database";
 import { withSafeError } from "@/lib/security/errors";
+import { createPublicLead } from "@/lib/data/service-role/leads";
+import { getCurrentAuthUserId } from "@/lib/data/auth";
+import {
+  createAdminLead,
+  updateLead as dalUpdateLead,
+  updateLeadStatus as dalUpdateLeadStatus,
+  convertLeadToQuotation as dalConvertLeadToQuotation,
+  deleteLead as dalDeleteLead,
+} from "@/lib/data/leads";
+import { uuidSchema, servicePersonSchema, nonNegativeNumberSchema } from "@/lib/security/schemas";
 
 export interface FunctionDayInput {
   day_index: number;
@@ -118,6 +126,8 @@ const leadInputSchema = z
     { path: ["additional_details"], message: "Additional details are required" }
   );
 
+type ParsedLeadInput = z.infer<typeof leadInputSchema>;
+
 async function getClientIp() {
   const headerStore = await headers();
   return (
@@ -127,140 +137,45 @@ async function getClientIp() {
   );
 }
 
-async function assertActiveReferences(
-  supabase: Awaited<ReturnType<typeof createClient>> | ReturnType<typeof createAdminClient>,
-  days: FunctionDayInput[]
-) {
-  const eventIds = Array.from(
-    new Set(days.flatMap((day) => [day.first_event_id, day.second_event_id].filter(Boolean)))
-  ) as string[];
-  const serviceIds = Array.from(new Set(days.flatMap((day) => day.service_ids)));
-
-  if (eventIds.length > 0) {
-    const { data, error } = await supabase
-      .from("events")
-      .select("id")
-      .in("id", eventIds)
-      .eq("status", "active");
-    if (error) throw new Error("Unable to validate selected events");
-    if ((data ?? []).length !== eventIds.length) {
-      throw new Error("One or more selected events are unavailable");
-    }
-  }
-
-  if (serviceIds.length > 0) {
-    const { data, error } = await supabase
-      .from("services")
-      .select("id")
-      .in("id", serviceIds)
-      .eq("status", "active");
-    if (error) throw new Error("Unable to validate selected services");
-    if ((data ?? []).length !== serviceIds.length) {
-      throw new Error("One or more selected services are unavailable");
-    }
-  }
-}
-
 export async function createLead(input: LeadFormInput) {
   return withSafeError(async () => {
     const parsed = leadInputSchema.parse(input);
-    const authClient = await createClient();
-    const {
-      data: { user },
-    } = await authClient.auth.getUser();
+    const currentUserId = await getCurrentAuthUserId();
 
-    if (user) {
+    if (currentUserId) {
       await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+      const leadId = await createAdminLead(parsed as ParsedLeadInput);
+      revalidatePath("/leads");
+      return leadId;
     } else {
       const ip = await getClientIp();
-      const { data: allowed, error: limitError } = await authClient.rpc("check_rate_limit", {
-        limit_key: rateLimitKey("public-lead", ip),
-        max_tokens: 5.0,
-        refill_rate_per_sec: 5.0 / 3600.0,
+      const allowed = await checkDbRateLimit(rateLimitKey("public-lead", ip), {
+        maxTokens: 5.0,
+        refillRatePerSec: 5.0 / 3600.0,
         cost: 1.0,
       });
-      if (limitError || !allowed) {
+      if (!allowed) {
         throw new Error("Too many inquiry submissions. Please try again later.");
       }
+
+      const leadId = await createPublicLead(parsed as ParsedLeadInput);
+      revalidatePath("/leads");
+      return leadId;
     }
-
-    const source: LeadSource = user ? "admin_manual" : "public_form";
-    const status = user ? parsed.status : "pending";
-
-    // Public form: use service role so RLS does not block insert + select
-    const supabase =
-      source === "public_form" ? createAdminClient() : authClient;
-
-    await assertActiveReferences(supabase, parsed.function_days);
-
-    const { data: lead, error } = await supabase
-      .from("leads")
-      .insert({
-        source,
-        status,
-        your_name: parsed.your_name,
-        couple_name: parsed.couple_name,
-        referral_source: parsed.referral_source,
-        contact_number: parsed.contact_number,
-        email: parsed.email || null,
-        event_location: parsed.event_location,
-        wedding_date: parsed.wedding_date,
-        wedding_venue: parsed.wedding_venue || null,
-        album_requirement: parsed.album_requirement,
-        drone_requirement: parsed.drone_requirement,
-        shooting_side: parsed.shooting_side,
-        pre_wedding_shoot: parsed.pre_wedding_shoot,
-        functions_count: parsed.functions_count,
-        has_additional_info: parsed.has_additional_info,
-        additional_details: parsed.additional_details || null,
-        agreement_accepted: parsed.agreement_accepted,
-        budget_range: parsed.budget_range,
-        created_by: user?.id ?? null,
-      })
-      .select("id")
-      .single();
-
-    if (error || !lead) throw new Error(error?.message ?? "Failed to create lead");
-
-    for (const day of parsed.function_days) {
-      const { data: dayRow, error: dayError } = await supabase
-        .from("lead_function_days")
-        .insert({
-          lead_id: lead.id,
-          day_index: day.day_index,
-          day_date: day.day_date,
-          first_event_id: day.first_event_id || null,
-          second_event_id: day.second_event_id || null,
-        })
-        .select("id")
-        .single();
-
-      if (dayError || !dayRow) throw new Error(dayError?.message ?? "Failed to save function day");
-
-      if (day.service_ids.length > 0) {
-        const { error: svcError } = await supabase.from("lead_function_day_services").insert(
-          day.service_ids.map((service_id) => ({
-            lead_function_day_id: dayRow.id,
-            service_id,
-          }))
-        );
-        if (svcError) throw new Error(svcError.message);
-      }
-    }
-
-    revalidatePath("/leads");
-    return lead.id;
   });
 }
 
 export async function updateLeadStatus(id: string, status: string) {
   return withSafeError(async () => {
+    const parsed = z.object({
+      id: uuidSchema,
+      status: z.enum(leadStatusValues),
+    }).parse({ id, status });
+
     await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-    const supabase = await createClient();
-    const { error } = await supabase.from("leads").update({ status }).eq("id", id);
-    if (error) throw new Error(error.message);
+    await dalUpdateLeadStatus(parsed.id, parsed.status);
     revalidatePath("/leads");
-    revalidatePath(`/leads/${id}`);
+    revalidatePath(`/leads/${parsed.id}`);
   });
 }
 
@@ -271,36 +186,30 @@ export async function convertLeadToQuotation(
   amount = 0
 ) {
   return withSafeError(async () => {
+    const parsed = z.object({
+      leadId: uuidSchema,
+      servicePersons: z.array(servicePersonSchema),
+      deliverableIds: z.array(uuidSchema),
+      amount: nonNegativeNumberSchema,
+    }).parse({ leadId, servicePersons, deliverableIds, amount });
+
     await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const { data: quotationId, error } = await supabase.rpc("convert_lead_to_quotation", {
-      lead_id: leadId,
-      amount,
-      service_persons: servicePersons,
-      deliverable_ids: deliverableIds,
-      created_by_user: user?.id ?? null,
-    });
-
-    if (error || !quotationId) {
-      throw new Error(error?.message ?? "Failed to convert lead to quotation");
-    }
-
+    const quotationId = await dalConvertLeadToQuotation(
+      parsed.leadId,
+      parsed.servicePersons,
+      parsed.deliverableIds,
+      parsed.amount
+    );
     revalidatePath("/leads");
     revalidatePath("/quotations");
-    return quotationId as string;
+    return quotationId;
   });
 }
 
 export async function deleteLead(id: string) {
   return withSafeError(async () => {
     await requireRoleOrThrow(["admin", "manager"], "Manager or admin access required");
-    const supabase = await createClient();
-    const { error } = await supabase.from("leads").delete().eq("id", id);
-    if (error) throw new Error(error.message);
+    await dalDeleteLead(id);
     revalidatePath("/leads");
   });
 }
@@ -309,68 +218,7 @@ export async function updateLead(id: string, input: LeadFormInput) {
   return withSafeError(async () => {
     await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
     const parsed = leadInputSchema.parse(input);
-    const supabase = await createClient();
-    await assertActiveReferences(supabase, parsed.function_days);
-
-    const updatePayload: Record<string, unknown> = {
-      your_name: parsed.your_name,
-      couple_name: parsed.couple_name,
-      referral_source: parsed.referral_source,
-      contact_number: parsed.contact_number,
-      email: parsed.email || null,
-      event_location: parsed.event_location,
-      wedding_date: parsed.wedding_date,
-      wedding_venue: parsed.wedding_venue || null,
-      album_requirement: parsed.album_requirement,
-      drone_requirement: parsed.drone_requirement,
-      shooting_side: parsed.shooting_side,
-      pre_wedding_shoot: parsed.pre_wedding_shoot,
-      functions_count: parsed.functions_count,
-      has_additional_info: parsed.has_additional_info,
-      additional_details: parsed.additional_details || null,
-      budget_range: parsed.budget_range,
-    };
-
-    if (parsed.status) {
-      updatePayload.status = parsed.status;
-    }
-
-    const { error } = await supabase
-      .from("leads")
-      .update(updatePayload)
-      .eq("id", id);
-
-    if (error) throw new Error(error.message);
-
-    // Sync lead function days (delete and re-create)
-    await supabase.from("lead_function_days").delete().eq("lead_id", id);
-
-    for (const day of parsed.function_days) {
-      const { data: dayRow, error: dayError } = await supabase
-        .from("lead_function_days")
-        .insert({
-          lead_id: id,
-          day_index: day.day_index,
-          day_date: day.day_date,
-          first_event_id: day.first_event_id || null,
-          second_event_id: day.second_event_id || null,
-        })
-        .select("id")
-        .single();
-
-      if (dayError || !dayRow) throw new Error(dayError?.message ?? "Failed to save function day");
-
-      if (day.service_ids.length > 0) {
-        const { error: svcError } = await supabase.from("lead_function_day_services").insert(
-          day.service_ids.map((service_id) => ({
-            lead_function_day_id: dayRow.id,
-            service_id,
-          }))
-        );
-        if (svcError) throw new Error(svcError.message);
-      }
-    }
-
+    await dalUpdateLead(id, parsed as ParsedLeadInput);
     revalidatePath("/leads");
     revalidatePath(`/leads/${id}`);
   });
