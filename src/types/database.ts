@@ -141,6 +141,7 @@ export interface Order {
   email: string | null;
   event_location: string;
   wedding_date: string;
+  wedding_venue: string | null;
   budget_range: string | null;
   admin_notes?: string | null;
   agreement_content?: string | null;
