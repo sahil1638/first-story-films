@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { requireManagerOrAdminOrThrow } from "@/lib/auth/require-role";
-import { upsertMaster, syncMasterServices, deleteMaster } from "@/lib/data/masters";
+import { upsertMaster, deleteMaster } from "@/lib/data/masters";
 import { deleteMasterSchema, upsertMasterSchema, type MasterTableName } from "@/lib/security/schemas";
 import { handleApiError } from "@/lib/security/api-errors";
 
@@ -16,10 +16,6 @@ export async function POST(request: NextRequest) {
     const payload = upsertMasterSchema.parse(body);
 
     const itemId = await upsertMaster(payload);
-
-    if (payload.table === "agencies" || payload.table === "crew_members") {
-      await syncMasterServices(payload.table, itemId, payload.serviceIds);
-    }
     revalidatePath(masterPath(payload.table));
 
     return NextResponse.json({ id: itemId, success: true });

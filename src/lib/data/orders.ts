@@ -171,20 +171,12 @@ export async function allocateCrew(
 ) {
   await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
-  await supabase
-    .from("order_service_allocations")
-    .delete()
-    .eq("order_service_id", orderServiceId);
-
-  if (crewMemberIds.length > 0) {
-    const { error } = await supabase.from("order_service_allocations").insert(
-      crewMemberIds.map((crew_member_id) => ({
-        order_service_id: orderServiceId,
-        crew_member_id,
-      }))
-    );
-    if (error) throw new Error(error.message);
-  }
+  const { error } = await supabase.rpc("replace_order_service_allocations", {
+    p_order_id: orderId,
+    p_order_service_id: orderServiceId,
+    p_crew_member_ids: Array.from(new Set(crewMemberIds.filter(Boolean))),
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function addPayment(

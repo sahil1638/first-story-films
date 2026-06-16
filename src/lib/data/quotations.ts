@@ -42,39 +42,15 @@ export async function updateQuotationDeliverables(
 ) {
   await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
   const supabase = await createClient();
-  const { data: quotationDays, error: quotationDaysError } = await supabase
-    .from("quotation_function_days")
-    .select("quotation_function_day_services(service_id)")
-    .eq("quotation_id", quotationId);
-
-  if (quotationDaysError) throw new Error(quotationDaysError.message);
-
-  const selectedServiceIds = new Set<string>();
-  for (const day of quotationDays ?? []) {
-    for (const service of day.quotation_function_day_services ?? []) {
-      selectedServiceIds.add(service.service_id);
-    }
-  }
-  const selectedServicePersons = servicePersons.filter((sp) => selectedServiceIds.has(sp.service_id));
-
-  await supabase.from("quotation_deliverables").delete().eq("quotation_id", quotationId);
-  await supabase.from("quotation_service_persons").delete().eq("quotation_id", quotationId);
-
-  if (deliverableIds.length > 0) {
-    await supabase.from("quotation_deliverables").insert(
-      deliverableIds.map((deliverable_id) => ({ quotation_id: quotationId, deliverable_id }))
-    );
-  }
-
-  if (selectedServicePersons.length > 0) {
-    await supabase.from("quotation_service_persons").insert(
-      selectedServicePersons.map((sp) => ({
-        quotation_id: quotationId,
-        service_id: sp.service_id,
-        person_count: sp.person_count,
-      }))
-    );
-  }
+  const { error } = await supabase.rpc("replace_quotation_selections", {
+    p_quotation_id: quotationId,
+    p_deliverable_ids: Array.from(new Set(deliverableIds.filter(Boolean))),
+    p_service_persons: servicePersons,
+    p_replace_deliverables: true,
+    p_replace_service_persons: true,
+    p_filter_service_persons_to_selected: true,
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function updateQuotationServicePersons(
@@ -91,18 +67,15 @@ export async function updateQuotationServicePersons(
     }))
     .filter((sp) => Boolean(sp.service_id));
 
-  await supabase.from("quotation_service_persons").delete().eq("quotation_id", quotationId);
-
-  if (normalized.length > 0) {
-    const { error } = await supabase.from("quotation_service_persons").insert(
-      normalized.map((sp) => ({
-        quotation_id: quotationId,
-        service_id: sp.service_id,
-        person_count: sp.person_count,
-      }))
-    );
-    if (error) throw new Error(error.message);
-  }
+  const { error } = await supabase.rpc("replace_quotation_selections", {
+    p_quotation_id: quotationId,
+    p_deliverable_ids: [],
+    p_service_persons: normalized,
+    p_replace_deliverables: false,
+    p_replace_service_persons: true,
+    p_filter_service_persons_to_selected: false,
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function updateQuotationDeliverableSelection(
@@ -113,14 +86,15 @@ export async function updateQuotationDeliverableSelection(
   const supabase = await createClient();
   const uniqueIds = Array.from(new Set(deliverableIds.filter(Boolean)));
 
-  await supabase.from("quotation_deliverables").delete().eq("quotation_id", quotationId);
-
-  if (uniqueIds.length > 0) {
-    const { error } = await supabase.from("quotation_deliverables").insert(
-      uniqueIds.map((deliverable_id) => ({ quotation_id: quotationId, deliverable_id }))
-    );
-    if (error) throw new Error(error.message);
-  }
+  const { error } = await supabase.rpc("replace_quotation_selections", {
+    p_quotation_id: quotationId,
+    p_deliverable_ids: uniqueIds,
+    p_service_persons: [],
+    p_replace_deliverables: true,
+    p_replace_service_persons: false,
+    p_filter_service_persons_to_selected: false,
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function updateQuotationTerms(

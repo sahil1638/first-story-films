@@ -87,16 +87,22 @@ export async function upsertMaster(
   await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
   const { table, data, id } = payload;
+  const serviceIds = "serviceIds" in payload ? payload.serviceIds : [];
 
-  if (id) {
-    const { error } = await supabase.from(table).update(data).eq("id", id);
-    if (error) throw new Error(error.message);
-    return id;
-  } else {
-    const { data: inserted, error } = await supabase.from(table).insert(data).select("id").single();
-    if (error || !inserted) throw new Error(error?.message ?? "Insert failed");
-    return inserted.id;
+  const { data: itemId, error } = await supabase.rpc("upsert_master_with_service_mappings", {
+    p_table: table,
+    p_id: id ?? null,
+    p_data: data,
+    p_service_ids: serviceIds,
+    p_test_run_id: null,
+    p_created_by_test: false,
+  });
+
+  if (error || !itemId) {
+    throw new Error(error?.message ?? "Upsert failed");
   }
+
+  return itemId as string;
 }
 
 export async function syncMasterServices(
@@ -107,27 +113,19 @@ export async function syncMasterServices(
   await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
 
-  if (table === "agencies") {
-    const { error: delError } = await supabase.from("agency_services").delete().eq("agency_id", id);
-    if (delError) throw new Error(delError.message);
-    if (serviceIds.length > 0) {
-      const { error: insError } = await supabase.from("agency_services").insert(
-        serviceIds.map((service_id) => ({ agency_id: id, service_id }))
-      );
-      if (insError) throw new Error(insError.message);
-    }
+  if (table !== "agencies" && table !== "crew_members") {
+    return;
   }
 
-  if (table === "crew_members") {
-    const { error: delError } = await supabase.from("crew_member_services").delete().eq("crew_member_id", id);
-    if (delError) throw new Error(delError.message);
-    if (serviceIds.length > 0) {
-      const { error: insError } = await supabase.from("crew_member_services").insert(
-        serviceIds.map((service_id) => ({ crew_member_id: id, service_id }))
-      );
-      if (insError) throw new Error(insError.message);
-    }
-  }
+  const { error } = await supabase.rpc("upsert_master_with_service_mappings", {
+    p_table: table,
+    p_id: id,
+    p_data: {},
+    p_service_ids: serviceIds,
+    p_test_run_id: null,
+    p_created_by_test: false,
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function deleteMaster(table: MasterTableName, id: string) {

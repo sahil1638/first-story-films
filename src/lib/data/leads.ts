@@ -186,7 +186,6 @@ export async function createAdminLead(input: LeadFormInput) {
 export async function updateLead(id: string, input: LeadFormInput) {
   await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
   const supabase = await createClient();
-  await assertActiveReferences(input.function_days);
 
   const updatePayload: Record<string, unknown> = {
     your_name: input.your_name,
@@ -211,42 +210,12 @@ export async function updateLead(id: string, input: LeadFormInput) {
     updatePayload.status = input.status;
   }
 
-  const { error } = await supabase
-    .from("leads")
-    .update(updatePayload)
-    .eq("id", id);
-
+  const { error } = await supabase.rpc("update_lead_with_function_days", {
+    p_lead_id: id,
+    p_lead: updatePayload,
+    p_function_days: input.function_days,
+  });
   if (error) throw new Error(error.message);
-
-  await supabase.from("lead_function_days").delete().eq("lead_id", id);
-
-  for (const day of input.function_days) {
-    const { data: dayRow, error: dayError } = await supabase
-      .from("lead_function_days")
-      .insert({
-        lead_id: id,
-        day_index: day.day_index,
-        day_date: day.day_date,
-        first_event_id: day.first_event_id || null,
-        second_event_id: day.second_event_id || null,
-      })
-      .select("id")
-      .single();
-
-    if (dayError || !dayRow) {
-      throw new Error(dayError?.message ?? "Failed to save function day");
-    }
-
-    if (day.service_ids.length > 0) {
-      const { error: svcError } = await supabase.from("lead_function_day_services").insert(
-        day.service_ids.map((service_id) => ({
-          lead_function_day_id: dayRow.id,
-          service_id,
-        }))
-      );
-      if (svcError) throw new Error(svcError.message);
-    }
-  }
 }
 
 export async function updateLeadStatus(id: string, status: string) {
