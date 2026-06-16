@@ -6,7 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "audit:supabase-auth": "node scripts/verify-supabase-auth-config.mjs",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:ci": "npm run audit:supabase-auth && npm run test:unit && npm run test:integration",
+    "test:e2e": "playwright test --project=chromium",
+    "test:load": "node scripts/load-test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -25,6 +32,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
