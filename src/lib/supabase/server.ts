@@ -5,8 +5,9 @@ import { cookies } from "next/headers";
 
 export async function createClient() {
   const cookieStore = await cookies();
+  const testRunId = cookieStore.get("test_run_id")?.value;
 
-  return createServerClient(
+  const client = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -26,23 +27,66 @@ export async function createClient() {
       },
     }
   );
+
+  const isTestOrLocal =
+    process.env.NODE_ENV === "test" ||
+    process.env.ALLOW_TEST_CLEANUP === "true" ||
+    (process.env.NEXT_PUBLIC_SUPABASE_URL || "").includes("localhost") ||
+    (process.env.NEXT_PUBLIC_SUPABASE_URL || "").includes("127.0.0.1");
+
+  if (testRunId && isTestOrLocal) {
+    return new Proxy(client, {
+      get(target, prop, receiver) {
+        if (prop === "from") {
+          return (table: string) => {
+            const queryBuilder = target.from(table);
+            const originalInsert = queryBuilder.insert.bind(queryBuilder);
+            const originalUpsert = queryBuilder.upsert.bind(queryBuilder);
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            queryBuilder.insert = (values: any, options?: any) => {
+              if (Array.isArray(values)) {
+                values = values.map((v) => ({
+                  ...v,
+                  test_run_id: testRunId,
+                  created_by_test: true,
+                }));
+              } else if (typeof values === "object" && values !== null) {
+                values = {
+                  ...values,
+                  test_run_id: testRunId,
+                  created_by_test: true,
+                };
+              }
+              return originalInsert(values, options);
+            };
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            queryBuilder.upsert = (values: any, options?: any) => {
+              if (Array.isArray(values)) {
+                values = values.map((v) => ({
+                  ...v,
+                  test_run_id: testRunId,
+                  created_by_test: true,
+                }));
+              } else if (typeof values === "object" && values !== null) {
+                values = {
+                  ...values,
+                  test_run_id: testRunId,
+                  created_by_test: true,
+                };
+              }
+              return originalUpsert(values, options);
+            };
+
+            return queryBuilder;
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+  }
+
+  return client;
 }
 
-export async function getProfile() {
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .single();
-
-  if (!profile) return null;
-
-  return profile;
-}

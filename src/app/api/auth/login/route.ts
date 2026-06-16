@@ -2,19 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { checkDbRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
+import { loginRequestSchema } from "@/lib/security/schemas";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const email = String(body.email ?? "").trim();
-    const password = String(body.password ?? "");
-
-    if (!email || !password) {
-      return NextResponse.json(
-        { error: "Please enter your email and password." },
-        { status: 400 }
-      );
-    }
+    const { email, password } = loginRequestSchema.parse(body);
 
     const ip =
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
@@ -26,6 +19,7 @@ export async function POST(request: NextRequest) {
         maxTokens: 5.0,
         refillRatePerSec: 5.0 / 900.0,
         cost: 1.0,
+        context: "auth.login",
       }
     );
     if (!allowed) {
