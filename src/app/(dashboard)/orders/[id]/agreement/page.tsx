@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { PrintButton } from "@/components/ui/print-button";
+import { getOrderById } from "@/lib/data/orders";
+import { getSettingByKey, getServicesByIds } from "@/lib/data/masters";
 
 export default async function OrderAgreementPage({
   params,
@@ -11,20 +12,32 @@ export default async function OrderAgreementPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
 
-  const [{ data: order }, { data: agreementRow }] = await Promise.all([
-    supabase.from("orders").select("*, order_services(service_id)").eq("id", id).single(),
-    supabase.from("settings").select("value").eq("key", "agreement_content").maybeSingle(),
-  ]);
+  let order;
+  let agreementVal = "";
+  try {
+    const [o, a] = await Promise.all([
+      getOrderById(id),
+      getSettingByKey("agreement_content"),
+    ]);
+    order = o;
+    agreementVal = a ?? "";
+  } catch {
+    notFound();
+  }
 
   if (!order) notFound();
 
   const orderServiceIds = (order.order_services ?? []).map((service: { service_id: string }) => service.service_id);
-  const { data: services } = orderServiceIds.length > 0
-    ? await supabase.from("services").select("id, name").in("id", orderServiceIds)
-    : { data: [] };
-  const agreement = order.agreement_content?.trim() || agreementRow?.value || "";
+  let services: Awaited<ReturnType<typeof getServicesByIds>> = [];
+  if (orderServiceIds.length > 0) {
+    try {
+      services = await getServicesByIds(orderServiceIds);
+    } catch (e) {
+      console.error("Failed to fetch services for agreement page", e);
+    }
+  }
+  const agreement = order.agreement_content?.trim() || agreementVal;
   const invoiceType = order.invoice_type === "gst" ? "GST" : "Non-GST";
   const subtotal = Number(order.subtotal_amount ?? order.total_amount ?? 0);
   const gstAmount = Number(order.gst_amount ?? 0);

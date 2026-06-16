@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { ClickableRow } from "@/components/ui/clickable-row";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { requireManagerOrAdmin } from "@/lib/auth/require-role";
+import { requireManagerOrAdmin } from "@/lib/auth/ui-guards";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { getCustomerById, getCustomerOrders } from "@/lib/data/customers";
 import {
   ArrowLeft,
   Heart,
@@ -56,22 +56,18 @@ export default async function CustomerDetailPage({
 }) {
   await requireManagerOrAdmin();
   const { id } = await params;
-  const supabase = await createClient();
 
-  const { data: customer } = await supabase
-    .from("customers")
-    .select("id, couple_name, contact_number, email, created_at")
-    .eq("id", id)
-    .single();
+  let customer;
+  try {
+    customer = await getCustomerById(id);
+  } catch {
+    notFound();
+  }
 
   if (!customer) notFound();
 
   const typedCustomer = customer as Customer;
-  const { data: orders } = await supabase
-    .from("orders")
-    .select("*, order_services(id, person_count, services(name))")
-    .eq("contact_number", typedCustomer.contact_number)
-    .order("created_at", { ascending: false });
+  const orders = await getCustomerOrders(typedCustomer.contact_number);
 
   const customerOrders = (orders ?? []) as CustomerOrder[];
   const primaryOrder = customerOrders[0];

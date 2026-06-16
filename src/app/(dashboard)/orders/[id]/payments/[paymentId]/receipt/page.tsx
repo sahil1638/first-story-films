@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { PrintButton } from "@/components/ui/print-button";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { getOrderById, getPaymentsByOrderId } from "@/lib/data/orders";
 
 export default async function PaymentReceiptPage({
   params,
@@ -11,14 +11,22 @@ export default async function PaymentReceiptPage({
   params: Promise<{ id: string; paymentId: string }>;
 }) {
   const { id, paymentId } = await params;
-  const supabase = await createClient();
 
-  const [{ data: order }, { data: payment }] = await Promise.all([
-    supabase.from("orders").select("*").eq("id", id).single(),
-    supabase.from("payments").select("*").eq("id", paymentId).eq("order_id", id).single(),
-  ]);
+  let order;
+  let allPayments;
+  try {
+    [order, allPayments] = await Promise.all([
+      getOrderById(id),
+      getPaymentsByOrderId(id),
+    ]);
+  } catch {
+    notFound();
+  }
 
-  if (!order || !payment) notFound();
+  if (!order) notFound();
+
+  const payment = (allPayments ?? []).find((p) => p.id === paymentId);
+  if (!payment) notFound();
 
   return (
     <div className="mx-auto max-w-3xl bg-white text-stone-900">

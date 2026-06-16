@@ -11,7 +11,7 @@ import { Pencil, X } from "lucide-react";
 import { updateOrderStatus, updateOrderBasic } from "@/lib/actions/orders";
 import { BUDGET_RANGES, ORDER_STATUSES } from "@/lib/constants";
 import { calculateOrderBilling, formatCurrency, GST_RATE_PERCENT } from "@/lib/utils";
-import type { InvoiceType, OrderStatus } from "@/types/database";
+import type { Order, InvoiceType, OrderStatus } from "@/types/database";
 
 const OPTIONS = [
   { value: "pending", label: "Pending" },
@@ -23,8 +23,7 @@ const OPTIONS = [
 export function OrderStatusActions({
   order,
 }: {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  order: any;
+  order: Order;
 }) {
   const router = useRouter();
   const orderId = order.id;
@@ -264,10 +263,9 @@ export function OrderStatusActions({
                 label="Order Status"
                 required
                 placeholder="Select status..."
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                options={ORDER_STATUSES as any}
+                options={ORDER_STATUSES}
                 value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value })}
+                onChange={(e) => setForm({ ...form, status: e.target.value as OrderStatus })}
                 error={errors.status}
               />
               <Select

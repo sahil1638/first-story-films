@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
-import { requireRole } from "@/lib/auth/require-role";
+import { requireRole } from "@/lib/auth/ui-guards";
 import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { PrintButton } from "@/components/ui/print-button";
+import { getQuotationById } from "@/lib/data/quotations";
+import { getSettingByKey, getServicesByIds, getDeliverablesByIds } from "@/lib/data/masters";
 
 export default async function QuotationPrintPage({
   params,
@@ -13,18 +14,19 @@ export default async function QuotationPrintPage({
 }) {
   const { id } = await params;
   await requireRole(["admin", "manager", "sales"]);
-  const supabase = await createClient();
 
-  const [{ data: quotation }, { data: termsRow }] = await Promise.all([
-    supabase
-      .from("quotations")
-      .select(
-        "*, quotation_service_persons(*), quotation_deliverables(deliverable_id), quotation_function_days(*, quotation_function_day_services(service_id))"
-      )
-      .eq("id", id)
-      .single(),
-    supabase.from("settings").select("value").eq("key", "terms_and_conditions").maybeSingle(),
-  ]);
+  let quotation;
+  let termsVal = "";
+  try {
+    const [q, t] = await Promise.all([
+      getQuotationById(id),
+      getSettingByKey("terms_and_conditions"),
+    ]);
+    quotation = q;
+    termsVal = t ?? "";
+  } catch {
+    notFound();
+  }
 
   if (!quotation) notFound();
 
@@ -45,16 +47,12 @@ export default async function QuotationPrintPage({
     }
   }
 
-  const [{ data: services }, { data: deliverables }] = await Promise.all([
-    selectedServiceIds.size > 0
-      ? supabase.from("services").select("*").in("id", Array.from(selectedServiceIds))
-      : Promise.resolve({ data: [] }),
-    selectedDeliverableIds.length > 0
-      ? supabase.from("deliverables").select("*").in("id", selectedDeliverableIds)
-      : Promise.resolve({ data: [] }),
+  const [services, deliverables] = await Promise.all([
+    getServicesByIds(Array.from(selectedServiceIds)),
+    getDeliverablesByIds(selectedDeliverableIds),
   ]);
 
-  const terms = quotation.terms_and_conditions?.trim() || termsRow?.value || "";
+  const terms = quotation.terms_and_conditions?.trim() || termsVal;
 
   return (
     <div className="mx-auto max-w-4xl bg-white text-stone-900">

@@ -1,15 +1,8 @@
-import { createClient } from "@/lib/supabase/server";
+import { getOrders } from "@/lib/data/orders";
 import { OrdersTable } from "@/components/orders/orders-table";
-import type { Order } from "@/types/database";
 
 export default async function OrdersPage() {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("orders")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  const orders = (data ?? []) as Order[];
+  const orders = await getOrders();
 
   return (
     <div>

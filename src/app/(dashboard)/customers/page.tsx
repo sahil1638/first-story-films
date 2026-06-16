@@ -1,6 +1,7 @@
-import { createClient } from "@/lib/supabase/server";
-import { requireManagerOrAdmin } from "@/lib/auth/require-role";
+import { requireManagerOrAdmin } from "@/lib/auth/ui-guards";
 import { CustomersTable } from "@/components/customers/customers-table";
+import { getCustomers } from "@/lib/data/customers";
+import { getOrdersSummaryForCustomers } from "@/lib/data/orders";
 
 type CustomerRow = {
   id: string;
@@ -22,16 +23,9 @@ type OrderRow = {
 
 export default async function CustomersPage() {
   await requireManagerOrAdmin();
-  const supabase = await createClient();
-  const [{ data: customers }, { data: orders }] = await Promise.all([
-    supabase
-      .from("customers")
-      .select("id, couple_name, contact_number, email, order_id, created_at")
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("orders")
-      .select("id, your_name, contact_number, email, total_amount, created_at")
-      .order("created_at", { ascending: false }),
+  const [customers, orders] = await Promise.all([
+    getCustomers(),
+    getOrdersSummaryForCustomers(),
   ]);
 
   const ordersByContact = new Map<string, OrderRow[]>();

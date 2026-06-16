@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createClient, getProfile } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/data/users";
 import { Card } from "@/components/ui/card";
 import { AdminNotes } from "@/components/ui/admin-notes";
 import { formatDate, formatCurrency } from "@/lib/utils";
@@ -14,6 +14,9 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
 import { PdfDownloadButton } from "@/components/ui/pdf-download-button";
+import { getOrderById, getProductionJobsByOrderId, getPaymentsByOrderId } from "@/lib/data/orders";
+import { getQuotationById } from "@/lib/data/quotations";
+import { getAgencies, getServices, getCrewMembers, getEvents, getSettingByKey } from "@/lib/data/masters";
 import {
   ArrowLeft,
   Calendar,
@@ -39,48 +42,44 @@ export default async function OrderDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
-  const profile = await getProfile();
+  let order: Awaited<ReturnType<typeof getOrderById>> | null = null;
+  try {
+    order = await getOrderById(id);
+  } catch {
+    notFound();
+  }
+  if (!order) notFound();
+
+  const profile = await getCurrentUserProfile();
   const userRole = profile?.role ?? "sales";
 
-  const { data: order } = await supabase
-    .from("orders")
-    .select("*, order_services(*, order_service_allocations(crew_member_id))")
-    .eq("id", id)
-    .single();
-
-  if (!order) notFound();
   const invoiceType = order.invoice_type ?? "non_gst";
   const subtotalAmount = Number(order.subtotal_amount ?? order.total_amount ?? 0);
   const gstAmount = Number(order.gst_amount ?? 0);
   const remainingAmount = Math.max(0, Number(order.total_amount ?? 0) - Number(order.paid_amount ?? 0));
 
   const [
-    { data: agencies },
-    { data: services },
-    { data: crew },
-    { data: jobs },
-    { data: payments },
-    { data: quotation },
-    { data: events },
-    { data: agreementRow },
+    allAgencies,
+    services,
+    allCrew,
+    jobs,
+    payments,
+    quotation,
+    events,
+    agreementVal,
   ] = await Promise.all([
-    supabase.from("agencies").select("*").eq("status", "active"),
-    supabase.from("services").select("*"),
-    supabase
-      .from("crew_members")
-      .select("*, crew_member_services(service_id)")
-      .eq("status", "active"),
-    supabase.from("production_jobs").select("*, agencies(company_name, person_name, contact_number)").eq("order_id", id),
-    supabase.from("payments").select("*").eq("order_id", id).order("payment_date", { ascending: false }),
-    supabase
-      .from("quotations")
-      .select("*, quotation_function_days(*, quotation_function_day_services(service_id))")
-      .eq("id", order.quotation_id)
-      .maybeSingle(),
-    supabase.from("events").select("id, name"),
-    supabase.from("settings").select("value").eq("key", "agreement_content").maybeSingle(),
+    getAgencies(),
+    getServices(),
+    getCrewMembers(),
+    getProductionJobsByOrderId(id),
+    getPaymentsByOrderId(id),
+    order.quotation_id ? getQuotationById(order.quotation_id) : Promise.resolve(null),
+    getEvents(),
+    getSettingByKey("agreement_content"),
   ]);
+
+  const agencies = allAgencies.filter((a) => a.status === "active");
+  const crew = allCrew.filter((c) => c.status === "active");
 
   const eventMap = new Map((events ?? []).map((event) => [event.id, event.name]));
   const serviceMap = new Map((services ?? []).map((service) => [service.id, service.name]));
@@ -361,7 +360,7 @@ export default async function OrderDetailPage({
             <OrderAgreementContent
               orderId={id}
               initialContent={order.agreement_content ?? null}
-              defaultContent={agreementRow?.value ?? ""}
+              defaultContent={agreementVal ?? ""}
             />
           </Card>
         </div>
@@ -379,7 +378,7 @@ export default async function OrderDetailPage({
               <OrderAgreementContent
                 orderId={id}
                 initialContent={order.agreement_content ?? null}
-                defaultContent={agreementRow?.value ?? ""}
+                defaultContent={agreementVal ?? ""}
               />
             </Card>
           </div>

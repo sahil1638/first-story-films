@@ -1,6 +1,4 @@
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { requireRole } from "@/lib/auth/require-role";
 import { Card } from "@/components/ui/card";
 import { AdminNotes } from "@/components/ui/admin-notes";
 import { formatDate } from "@/lib/utils";
@@ -12,6 +10,8 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Tooltip } from "@/components/ui/tooltip";
 import { PdfDownloadButton } from "@/components/ui/pdf-download-button";
+import { getQuotationById } from "@/lib/data/quotations";
+import { getDeliverables, getServices, getEvents, getSettingByKey } from "@/lib/data/masters";
 import {
   ArrowLeft,
   Calendar,
@@ -37,33 +37,25 @@ export default async function QuotationDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireRole(["admin", "manager", "sales"]);
-  const supabase = await createClient();
-
-  const { data: quotation } = await supabase
-    .from("quotations")
-    .select(
-      "*, quotation_service_persons(*), quotation_deliverables(deliverable_id), quotation_function_days(*, quotation_function_day_services(service_id))"
-    )
-    .eq("id", id)
-    .single();
-
+  let quotation: Awaited<ReturnType<typeof getQuotationById>> | null = null;
+  try {
+    quotation = await getQuotationById(id);
+  } catch {
+    notFound();
+  }
   if (!quotation) notFound();
 
-  const [
-    { data: deliverables },
-    { data: services },
-    { data: events },
-    { data: termsRow },
-  ] = await Promise.all([
-    supabase.from("deliverables").select("*").eq("status", "active"),
-    supabase.from("services").select("*").eq("status", "active"),
-    supabase.from("events").select("id, name"),
-    supabase.from("settings").select("value").eq("key", "terms_and_conditions").maybeSingle(),
+  const [allDeliverables, allServices, events, termsVal] = await Promise.all([
+    getDeliverables(),
+    getServices(),
+    getEvents(),
+    getSettingByKey("terms_and_conditions"),
   ]);
 
+  const deliverables = allDeliverables.filter((d) => d.status === "active");
+
   const eventMap = new Map((events ?? []).map((e) => [e.id, e.name]));
-  const serviceMap = new Map((services ?? []).map((s) => [s.id, s.name]));
+  const serviceMap = new Map((allServices ?? []).map((s) => [s.id, s.name]));
 
   const selectedDeliverables = (quotation.quotation_deliverables ?? []).map(
     (d: { deliverable_id: string }) => d.deliverable_id
@@ -74,7 +66,7 @@ export default async function QuotationDetailPage({
       selectedServiceIds.add(service.service_id);
     }
   }
-  const selectedServices = (services ?? []).filter((service) => selectedServiceIds.has(service.id));
+  const selectedServices = (allServices ?? []).filter((service) => selectedServiceIds.has(service.id));
   const servicePersons = (quotation.quotation_service_persons ?? []) as {
     service_id: string;
     person_count: number;
@@ -102,7 +94,7 @@ export default async function QuotationDetailPage({
           <QuotationActions
             quotation={quotation}
             services={selectedServices}
-            deliverables={(deliverables ?? []).map((deliverable) => ({
+            deliverables={deliverables.map((deliverable) => ({
               id: deliverable.id,
               title: deliverable.title,
             }))}
@@ -272,7 +264,6 @@ export default async function QuotationDetailPage({
         </div>
       </Card>
 
-
       {/* Additional Information & Notes from Admin Grid */}
       <div className="grid gap-3 md:grid-cols-2">
         {/* Additional Information */}
@@ -316,7 +307,7 @@ export default async function QuotationDetailPage({
         <Card className="!p-3">
           <DeliverablesSelection
             quotationId={id}
-            deliverables={(deliverables ?? []).map((deliverable) => ({
+            deliverables={deliverables.map((deliverable) => ({
               id: deliverable.id,
               title: deliverable.title,
             }))}
@@ -328,7 +319,7 @@ export default async function QuotationDetailPage({
           <QuotationTermsCard
             quotationId={id}
             initialTerms={quotation.terms_and_conditions ?? null}
-            defaultTerms={termsRow?.value ?? ""}
+            defaultTerms={termsVal ?? ""}
           />
         </Card>
       </div>

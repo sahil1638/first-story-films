@@ -10,10 +10,9 @@ import { Select } from "@/components/ui/select";
 import { updateOrderBasic } from "@/lib/actions/orders";
 import { BUDGET_RANGES, ORDER_STATUSES } from "@/lib/constants";
 import { calculateOrderBilling, formatCurrency, GST_RATE_PERCENT } from "@/lib/utils";
-import type { InvoiceType } from "@/types/database";
+import type { Order, InvoiceType, OrderStatus } from "@/types/database";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function OrderEditButton({ order }: { order: any }) {
+export function OrderEditButton({ order }: { order: Order }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -159,10 +158,9 @@ export function OrderEditButton({ order }: { order: any }) {
                 label="Order Status"
                 required
                 placeholder="Select status..."
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                options={ORDER_STATUSES as any}
+                options={ORDER_STATUSES}
                 value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value })}
+                onChange={(e) => setForm({ ...form, status: e.target.value as OrderStatus })}
                 error={errors.status}
               />
               <Select

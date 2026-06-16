@@ -1,17 +1,8 @@
-import { createClient } from "@/lib/supabase/server";
-import { requireRole } from "@/lib/auth/require-role";
+import { getQuotations } from "@/lib/data/quotations";
 import { QuotationsTable } from "@/components/quotations/quotations-table";
-import type { Quotation } from "@/types/database";
 
 export default async function QuotationsPage() {
-  await requireRole(["admin", "manager", "sales"]);
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("quotations")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  const quotations = (data ?? []) as Quotation[];
+  const quotations = await getQuotations();
 
   return (
     <div>
