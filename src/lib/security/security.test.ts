@@ -1,18 +1,61 @@
 import { describe, it, expect, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
-import { ZodError, z } from "zod";
+import { z } from "zod";
+import {
+  EXPORT_ROW_LIMIT,
+  MAX_PAGE_SIZE,
+  normalizePagination,
+} from "@/lib/data/accounting";
 import {
   uuidSchema,
   dateStringSchema,
   createUserSchema,
   positiveNumberSchema,
   updateEntrySchema,
+  userRoleSchema,
+  upsertMasterSchema,
+  deleteMasterSchema,
+  updateSettingsSchema,
 } from "./schemas";
-import { withSafeError, SafeError } from "./errors";
+import { withSafeError } from "./errors";
 import { rateLimitKey, checkRateLimit } from "./rate-limit";
 
 describe("Zod Security Schemas", () => {
+  describe("Masters payload strict validation", () => {
+    it("should reject service master upsert with unknown fields", () => {
+      const payload = {
+        table: "services",
+        data: {
+          name: "Wedding Video",
+          status: "active",
+          unknown_field: "malicious",
+        },
+      };
+      const result = upsertMasterSchema.safeParse(payload);
+      expect(result.success).toBe(false);
+    });
+
+    it("should reject delete master with unknown fields", () => {
+      const payload = {
+        table: "services",
+        id: "123e4567-e89b-12d3-a456-426614174000",
+        unknown_field: "malicious",
+      };
+      const result = deleteMasterSchema.safeParse(payload);
+      expect(result.success).toBe(false);
+    });
+
+    it("should reject update settings with unknown fields", () => {
+      const payload = {
+        key: "terms_and_conditions",
+        value: "Some terms",
+        unknown_field: "malicious",
+      };
+      const result = updateSettingsSchema.safeParse(payload);
+      expect(result.success).toBe(false);
+    });
+  });
   describe("UUID Schema", () => {
     it("should accept valid UUIDs", () => {
       const validUuid = "123e4567-e89b-12d3-a456-426614174000";
@@ -59,6 +102,21 @@ describe("Zod Security Schemas", () => {
       expect(result.success).toBe(false);
     });
   });
+
+  describe("User Role Schema", () => {
+    it("should accept admin, manager, and sales", () => {
+      expect(userRoleSchema.safeParse("admin").success).toBe(true);
+      expect(userRoleSchema.safeParse("manager").success).toBe(true);
+      expect(userRoleSchema.safeParse("sales").success).toBe(true);
+    });
+
+    it("should reject crew and finance", () => {
+      expect(userRoleSchema.safeParse("crew").success).toBe(false);
+      expect(userRoleSchema.safeParse("finance").success).toBe(false);
+      expect(userRoleSchema.safeParse("other").success).toBe(false);
+    });
+  });
+
 
   describe("Positive Number Schema", () => {
     it("should accept positive numbers", () => {
@@ -133,5 +191,20 @@ describe("Rate Limiting Utilities", () => {
     expect(checkRateLimit(key, { limit: 2, windowMs: 1000 }).allowed).toBe(true);
     // Third request blocked
     expect(checkRateLimit(key, { limit: 2, windowMs: 1000 }).allowed).toBe(false);
+  });
+});
+
+describe("Accounting pagination limits", () => {
+  it("caps oversized page limits", () => {
+    expect(normalizePagination(2, MAX_PAGE_SIZE + 500)).toEqual({
+      page: 2,
+      limit: MAX_PAGE_SIZE,
+      from: MAX_PAGE_SIZE,
+      to: MAX_PAGE_SIZE * 2 - 1,
+    });
+  });
+
+  it("keeps export limit above the public pagination cap", () => {
+    expect(EXPORT_ROW_LIMIT).toBeGreaterThan(MAX_PAGE_SIZE);
   });
 });
