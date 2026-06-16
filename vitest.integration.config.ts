@@ -5,11 +5,7 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: true,
-    exclude: [
-      ...configDefaults.exclude,
-      "tests/e2e/**",
-      "playwright-report/**",
-      "test-results/**",
+    include: [
       "**/*-integration.test.ts",
       "**/*.integration.test.ts",
       "**/split-brain-reconciliation.test.ts",
@@ -17,6 +13,7 @@ export default defineConfig({
       "**/api-authorization.test.ts",
       "**/rate-limit-db.test.ts"
     ],
+    exclude: [...configDefaults.exclude, "tests/e2e/**", "playwright-report/**", "test-results/**"],
   },
   resolve: {
     alias: {

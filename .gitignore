@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/playwright-report/
+/test-results/
 
 # next.js
 /.next/
@@ -29,6 +31,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+debug.log
+*.log
 
 # env files (can opt-in for committing if needed)
 .env*
@@ -46,4 +50,3 @@ supabase/.temp
 # Audit files
 AUDIT_REPORT.md
 TECHNICAL_AUDIT_REPORT.md
-
