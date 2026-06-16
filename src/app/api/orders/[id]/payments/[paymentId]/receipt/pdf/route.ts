@@ -1,51 +1,119 @@
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { requireRole } from "@/lib/auth/require-role";
+import { requireRoleOrThrow } from "@/lib/auth/require-role";
 import { compileHtmlToPdf } from "@/lib/pdf-puppeteer";
 import { generatePaymentReceiptHtml } from "@/lib/payment-receipt-template";
+import { getOrderById, getPaymentsByOrderId } from "@/lib/data/orders";
+import { getQuotationById } from "@/lib/data/quotations";
+import { getAccountingAccountsForPayments } from "@/lib/data/accounting";
+import { checkDbRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
+import { handleApiError } from "@/lib/security/api-errors";
+import { getCachedPdfArtifact, setCachedPdfArtifact } from "@/lib/pdf-cache";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string; paymentId: string }> }
 ) {
-  await requireRole(["admin", "manager", "sales"]);
+  let profile;
+  try {
+    profile = await requireRoleOrThrow(["admin", "manager", "sales"]);
+  } catch (error) {
+    return handleApiError(error, { context: "receipt.pdf" });
+  }
   const { id, paymentId } = await params;
   const supabase = await createClient();
 
-  // 1. Fetch Order and Current Payment
-  const [{ data: order }, { data: payment }] = await Promise.all([
-    supabase.from("orders").select("*").eq("id", id).single(),
-    supabase.from("payments").select("*").eq("id", paymentId).eq("order_id", id).single(),
-  ]);
+  // Perform lightweight metadata query first
+  const { data: paymentMeta, error: metaError } = await supabase
+    .from("payments")
+    .select("created_at, receipt_number, order_id")
+    .eq("id", paymentId)
+    .single();
 
-  if (!order || !payment) notFound();
+  if (metaError || !paymentMeta) notFound();
+  // Ensure the payment belongs to the order in the route
+  if (paymentMeta.order_id !== id) notFound();
+
+  // 1. Per-user rate limit: max 5 requests, refilling 1 token every 5 seconds (0.2/sec) (cheap check before cache)
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const userKey = profile ? `user:${profile.id}` : `ip:${ip}`;
+  const allowed = await checkDbRateLimit(rateLimitKey("pdf", userKey), {
+    maxTokens: 5,
+    refillRatePerSec: 0.2,
+    cost: 1.0,
+    context: "receipt.pdf",
+  });
+  if (!allowed) {
+    return new Response("Too many PDF requests. Please try again later.", { status: 429 });
+  }
+
+  // 2. Cache check
+  const cacheKey = `receipt:${paymentId}`;
+  const cached = await getCachedPdfArtifact(cacheKey, paymentMeta.created_at);
+  if (cached) {
+    return new Response(new Uint8Array(cached), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="receipt-${paymentMeta.receipt_number}.pdf"`,
+      },
+    });
+  }
+
+  // 3. Per-route rate limit (expensive rendering check only on cache miss)
+  const routeAllowed = await checkDbRateLimit(rateLimitKey("pdf-route", "receipts"), {
+    maxTokens: 10,
+    refillRatePerSec: 0.5,
+    cost: 1.0,
+    context: "receipts.pdf.route",
+  });
+  if (!routeAllowed) {
+    return new Response("Too many PDF requests. Please try again later.", { status: 429 });
+  }
+
+  // 1. Fetch Order and Payments
+  let order;
+  let allPaymentsRaw;
+  try {
+    [order, allPaymentsRaw] = await Promise.all([
+      getOrderById(id),
+      getPaymentsByOrderId(id),
+    ]);
+  } catch {
+    notFound();
+  }
+
+  if (!order) notFound();
+
+  // Find the current payment in-memory from all payments of this order
+  const payment = (allPaymentsRaw ?? []).find((p) => p.id === paymentId);
+  if (!payment) notFound();
 
   // 2. Fetch Quotation for functions count / Celebration Days
-  const { data: quotation } = order.quotation_id
-    ? await supabase.from("quotations").select("functions_count").eq("id", order.quotation_id).maybeSingle()
-    : { data: null };
+  let quotation = null;
+  if (order.quotation_id) {
+    try {
+      quotation = await getQuotationById(order.quotation_id);
+    } catch (e) {
+      console.error("Payment receipt PDF quotation query failed", e);
+    }
+  }
 
-  // 3. Fetch all payments for this order (chronological order)
-  const { data: allPayments } = await supabase
-    .from("payments")
-    .select("*")
-    .eq("order_id", id)
-    .order("payment_date", { ascending: true });
+  // 3. Keep all payments for this order, sorted by payment_date ascending
+  const allPayments = [...(allPaymentsRaw ?? [])].sort(
+    (a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime()
+  );
 
   // 4. Fetch accounting entries to resolve payment method (account name)
-  const paymentIds = allPayments?.map((p) => p.id) ?? [];
-  const { data: entries } = paymentIds.length > 0
-    ? await supabase
-        .from("accounting_entries")
-        .select(`
-          source_id,
-          accounting_accounts (
-            name
-          )
-        `)
-        .in("source_id", paymentIds)
-        .eq("source", "order_payment")
-    : { data: [] };
+  const paymentIds = allPayments.map((p) => p.id);
+  let entries: Awaited<ReturnType<typeof getAccountingAccountsForPayments>> = [];
+  if (paymentIds.length > 0) {
+    try {
+      entries = await getAccountingAccountsForPayments(paymentIds);
+    } catch (e) {
+      console.error("Failed to fetch accounting accounts for payments", e);
+    }
+  }
 
   const accountMap = new Map<string, string>();
   if (entries) {
@@ -145,7 +213,8 @@ export async function GET(
   });
 
   // 7. Compile HTML to PDF via Puppeteer
-  const pdf = await compileHtmlToPdf(htmlContent);
+  const pdf = await compileHtmlToPdf(htmlContent, "receipt.pdf");
+  await setCachedPdfArtifact(cacheKey, payment.created_at, pdf);
 
   // 8. Return Response
   return new Response(new Uint8Array(pdf), {
@@ -155,4 +224,3 @@ export async function GET(
     },
   });
 }
-

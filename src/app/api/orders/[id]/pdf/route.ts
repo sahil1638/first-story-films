@@ -1,8 +1,15 @@
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { requireRole } from "@/lib/auth/require-role";
+import { requireRoleOrThrow } from "@/lib/auth/require-role";
 import { generateOrderAgreementHtml } from "@/lib/order-agreement-template";
 import { compileHtmlToPdf } from "@/lib/pdf-puppeteer";
+import { getOrderById, getPaymentsByOrderId } from "@/lib/data/orders";
+import { getQuotationById } from "@/lib/data/quotations";
+import { getServices, getDeliverablesByIds, getEvents, getCrewMembers, getSettings } from "@/lib/data/masters";
+import { checkDbRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
+import { handleApiError } from "@/lib/security/api-errors";
+import { getCachedPdfArtifact, setCachedPdfArtifact } from "@/lib/pdf-cache";
 
 type OrderService = {
   id: string;
@@ -27,46 +34,76 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  await requireRole(["admin", "manager", "sales"]);
+  let profile;
+  try {
+    profile = await requireRoleOrThrow(["admin", "manager", "sales"]);
+  } catch (error) {
+    return handleApiError(error, { context: "orders.pdf" });
+  }
+
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: order, error: orderError } = await supabase
+  // Perform lightweight metadata query first
+  const { data: orderMeta, error: metaError } = await supabase
     .from("orders")
-    .select(`
-      *,
-      order_services(
-        id,
-        service_id,
-        person_count,
-        order_service_allocations(crew_member_id)
-      ),
-      order_deliverables(deliverable_id)
-    `)
+    .select("updated_at")
     .eq("id", id)
     .single();
 
-  if (orderError && orderError.code !== "PGRST116") {
-    console.error("Order agreement PDF order query failed", orderError);
-    return Response.json({ error: "Unable to load order for PDF" }, { status: 500 });
+  if (metaError || !orderMeta) notFound();
+
+  // 1. Per-user rate limit: max 5 requests, refilling 1 token every 5 seconds (0.2/sec) (cheap check before cache)
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const userKey = profile ? `user:${profile.id}` : `ip:${ip}`;
+  const allowed = await checkDbRateLimit(rateLimitKey("pdf", userKey), {
+    maxTokens: 5,
+    refillRatePerSec: 0.2,
+    cost: 1.0,
+    context: "orders.pdf",
+  });
+  if (!allowed) {
+    return new Response("Too many PDF requests. Please try again later.", { status: 429 });
+  }
+
+  // 2. Cache check
+  const cacheKey = `order:${id}`;
+  const cached = await getCachedPdfArtifact(cacheKey, orderMeta.updated_at);
+  if (cached) {
+    return new Response(new Uint8Array(cached), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="wedding-order-agreement-${id.slice(0, 8)}.pdf"`,
+      },
+    });
+  }
+
+  // 3. Per-route rate limit (expensive rendering check only on cache miss)
+  const routeAllowed = await checkDbRateLimit(rateLimitKey("pdf-route", "orders"), {
+    maxTokens: 10,
+    refillRatePerSec: 0.5,
+    cost: 1.0,
+    context: "orders.pdf.route",
+  });
+  if (!routeAllowed) {
+    return new Response("Too many PDF requests. Please try again later.", { status: 429 });
+  }
+
+  let order;
+  try {
+    order = await getOrderById(id);
+  } catch {
+    notFound();
   }
   if (!order) notFound();
 
-  const { data: quotation, error: quotationError } = await supabase
-    .from("quotations")
-    .select(`
-      *,
-      quotation_function_days(
-        *,
-        quotation_function_day_services(service_id)
-      )
-    `)
-    .eq("id", order.quotation_id)
-    .maybeSingle();
-
-  if (quotationError) {
-    console.error("Order agreement PDF quotation query failed", quotationError);
-    return Response.json({ error: "Unable to load quotation details for PDF" }, { status: 500 });
+  let quotation = null;
+  if (order.quotation_id) {
+    try {
+      quotation = await getQuotationById(order.quotation_id);
+    } catch (e) {
+      console.error("Order agreement PDF quotation query failed", e);
+    }
   }
 
   const functionDays = (quotation?.quotation_function_days ?? []) as QuotationFunctionDay[];
@@ -86,26 +123,25 @@ export async function GET(
     .filter(Boolean);
 
   const [
-    { data: services },
-    { data: deliverables },
-    { data: events },
-    { data: crew },
-    { data: payments },
-    { data: settingsRows },
+    services,
+    deliverables,
+    events,
+    crew,
+    paymentsRaw,
+    settingsRows,
   ] = await Promise.all([
-    supabase.from("services").select("id, name"),
-    selectedDeliverableIds.length > 0
-      ? supabase.from("deliverables").select("id, title").in("id", selectedDeliverableIds)
-      : Promise.resolve({ data: [] }),
-    supabase.from("events").select("id, name"),
-    supabase.from("crew_members").select("id, name, crew_member_services(service_id)"),
-    supabase
-      .from("payments")
-      .select("amount, payment_date, receipt_number, notes")
-      .eq("order_id", id)
-      .order("payment_date", { ascending: true }),
-    supabase.from("settings").select("key, value"),
+    getServices(),
+    getDeliverablesByIds(selectedDeliverableIds),
+    getEvents(),
+    getCrewMembers(),
+    getPaymentsByOrderId(id),
+    getSettings(),
   ]);
+
+  // Sort payments by date ascending for PDF display
+  const payments = [...(paymentsRaw ?? [])].sort(
+    (a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime()
+  );
 
   const serviceMap = new Map((services ?? []).map((service) => [service.id, service.name]));
   const bookedServices = (services ?? []).filter((service) => selectedServiceIds.has(service.id));
@@ -127,7 +163,8 @@ export async function GET(
     eventMap,
   });
 
-  const pdf = await compileHtmlToPdf(htmlContent);
+  const pdf = await compileHtmlToPdf(htmlContent, "orders.pdf");
+  await setCachedPdfArtifact(cacheKey, order.updated_at, pdf);
 
   return new Response(new Uint8Array(pdf), {
     headers: {
