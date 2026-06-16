@@ -14,7 +14,7 @@ export function isSafeError(error: unknown): error is SafeError {
 export async function withSafeError<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error instanceof ZodError) {
       const message = error.issues.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ");
       throw new Error(`Validation Error: ${message}`);
@@ -24,7 +24,7 @@ export async function withSafeError<T>(fn: () => Promise<T>): Promise<T> {
       throw error;
     }
 
-    const msg = error?.message || String(error);
+    const msg = error instanceof Error ? error.message : String(error);
 
     // Allow intentional business logic and authorization errors to propagate
     if (

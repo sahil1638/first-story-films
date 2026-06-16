@@ -18,7 +18,7 @@ export const dateStringSchema = z
 export const positiveNumberSchema = z.number().positive("Must be a positive number");
 export const nonNegativeNumberSchema = z.number().nonnegative("Must be zero or greater");
 
-export const userRoleSchema = z.enum(["admin", "manager", "sales", "crew", "finance"]);
+export const userRoleSchema = z.enum(["admin", "manager", "sales"]);
 
 export const masterTableSchema = z.enum(["services", "events", "deliverables", "agencies", "crew_members"]);
 
@@ -26,6 +26,7 @@ export const accountingTypeSchema = z.enum(["income", "expense"]);
 export const accountingStatusSchema = z.enum(["active", "inactive"]);
 
 export const invoiceTypeSchema = z.enum(["gst", "non_gst"]);
+export const sortOrderSchema = z.enum(["asc", "desc"]);
 
 // User Management schemas
 export const createUserSchema = z.object({
@@ -41,22 +42,146 @@ export const updateUserDetailsSchema = z.object({
 });
 
 // Master data schemas
-export const upsertMasterSchema = z.object({
-  table: masterTableSchema,
-  data: z.record(z.string(), z.any()),
+const masterStatusSchema = accountingStatusSchema;
+
+export const serviceMasterDataSchema = z.object({
+  name: trimmedTextSchema(100).optional(),
+  description: optionalTextSchema(2000).nullable(),
+  status: masterStatusSchema.optional(),
+}).strict();
+
+export const eventMasterDataSchema = z.object({
+  name: trimmedTextSchema(100).optional(),
+  status: masterStatusSchema.optional(),
+}).strict();
+
+export const deliverableMasterDataSchema = z.object({
+  title: trimmedTextSchema(120).optional(),
+  status: masterStatusSchema.optional(),
+}).strict();
+
+export const agencyMasterDataSchema = z.object({
+  company_name: trimmedTextSchema(120).optional(),
+  person_name: trimmedTextSchema(100).optional(),
+  contact_number: z.string().trim().regex(/^\+?\d{10}$/, "Invalid contact number").optional(),
+  address: optionalTextSchema(500).nullable(),
+  status: masterStatusSchema.optional(),
+}).strict();
+
+export const crewMemberMasterDataSchema = z.object({
+  name: trimmedTextSchema(100).optional(),
+  contact_number: z.string().trim().regex(/^\+?\d{10}$/, "Invalid contact number").optional(),
+  address: optionalTextSchema(500).nullable(),
+  status: masterStatusSchema.optional(),
+}).strict();
+
+export const upsertServiceMasterSchema = z.object({
+  table: z.literal("services"),
+  data: serviceMasterDataSchema.refine((data) => data.name || data.status, "Service name or status is required"),
   id: uuidSchema.optional(),
+}).strict().superRefine((payload, ctx) => {
+  if (!payload.id && !payload.data.name) {
+    ctx.addIssue({ code: "custom", path: ["data", "name"], message: "Service name is required" });
+  }
 });
+
+export const upsertEventMasterSchema = z.object({
+  table: z.literal("events"),
+  data: eventMasterDataSchema.refine((data) => data.name || data.status, "Event name or status is required"),
+  id: uuidSchema.optional(),
+}).strict().superRefine((payload, ctx) => {
+  if (!payload.id && !payload.data.name) {
+    ctx.addIssue({ code: "custom", path: ["data", "name"], message: "Event name is required" });
+  }
+});
+
+export const upsertDeliverableMasterSchema = z.object({
+  table: z.literal("deliverables"),
+  data: deliverableMasterDataSchema.refine((data) => data.title || data.status, "Deliverable title or status is required"),
+  id: uuidSchema.optional(),
+}).strict().superRefine((payload, ctx) => {
+  if (!payload.id && !payload.data.title) {
+    ctx.addIssue({ code: "custom", path: ["data", "title"], message: "Deliverable title is required" });
+  }
+});
+
+export const upsertAgencyMasterSchema = z.object({
+  table: z.literal("agencies"),
+  data: agencyMasterDataSchema.refine(
+    (data) => data.company_name || data.person_name || data.contact_number || data.status,
+    "Agency details or status are required"
+  ),
+  id: uuidSchema.optional(),
+  serviceIds: z.array(uuidSchema).default([]),
+}).strict().superRefine((payload, ctx) => {
+  if (payload.id) return;
+  if (!payload.data.company_name) {
+    ctx.addIssue({ code: "custom", path: ["data", "company_name"], message: "Company name is required" });
+  }
+  if (!payload.data.person_name) {
+    ctx.addIssue({ code: "custom", path: ["data", "person_name"], message: "Contact person name is required" });
+  }
+  if (!payload.data.contact_number) {
+    ctx.addIssue({ code: "custom", path: ["data", "contact_number"], message: "Contact number is required" });
+  }
+});
+
+export const upsertCrewMemberMasterSchema = z.object({
+  table: z.literal("crew_members"),
+  data: crewMemberMasterDataSchema.refine(
+    (data) => data.name || data.contact_number || data.status,
+    "Crew member details or status are required"
+  ),
+  id: uuidSchema.optional(),
+  serviceIds: z.array(uuidSchema).default([]),
+}).strict().superRefine((payload, ctx) => {
+  if (payload.id) return;
+  if (!payload.data.name) {
+    ctx.addIssue({ code: "custom", path: ["data", "name"], message: "Crew member name is required" });
+  }
+  if (!payload.data.contact_number) {
+    ctx.addIssue({ code: "custom", path: ["data", "contact_number"], message: "Contact number is required" });
+  }
+});
+
+export const upsertMasterSchema = z.discriminatedUnion("table", [
+  upsertServiceMasterSchema,
+  upsertEventMasterSchema,
+  upsertDeliverableMasterSchema,
+  upsertAgencyMasterSchema,
+  upsertCrewMemberMasterSchema,
+]);
+
+export type UpsertMasterInput = z.infer<typeof upsertMasterSchema>;
+export type MasterTableName = z.infer<typeof masterTableSchema>;
+export type MasterDataForTable<T extends MasterTableName> = Extract<
+  UpsertMasterInput,
+  { table: T }
+>["data"];
 
 export const deleteMasterSchema = z.object({
   table: masterTableSchema,
   id: uuidSchema,
+}).strict();
+
+export const adminNotesTableSchema = z.enum(["leads", "quotations", "orders"]);
+
+export const updateAdminNotesSchema = z.object({
+  table: adminNotesTableSchema,
+  recordId: uuidSchema,
+  notes: optionalTextSchema(5000).nullable(),
+});
+
+export const loginRequestSchema = z.object({
+  email: z.string().trim().email("Invalid email address").max(254),
+  password: z.string().min(1, "Password is required"),
 });
 
 // Settings schema
 export const updateSettingsSchema = z.object({
   key: trimmedTextSchema(100),
   value: z.string(),
-});
+}).strict();
 
 // Invoice schemas
 export const createInvoiceSchema = z.object({
@@ -100,6 +225,100 @@ export const addEntrySchema = z.object({
   amount: positiveNumberSchema,
   entryDate: dateStringSchema,
   remarks: optionalTextSchema(2000),
+});
+
+// Route payload/query schemas
+export const pagedAccountFilterSchema = z.object({
+  page: z.string().optional(),
+  limit: z.string().optional(),
+  status: z.enum(["active", "inactive", "all"]).optional(),
+  search: z.string().optional(),
+  sortBy: z.string().optional(),
+  sortOrder: sortOrderSchema.optional(),
+});
+
+export const accountCreateSchema = z.object({
+  name: trimmedTextSchema(100),
+  openingBalance: nonNegativeNumberSchema,
+  status: accountingStatusSchema.optional(),
+});
+
+export const accountUpdateRouteSchema = z.object({
+  name: trimmedTextSchema(100).optional(),
+  openingBalance: nonNegativeNumberSchema.optional(),
+  status: accountingStatusSchema.optional(),
+});
+
+export const pagedCategoryFilterSchema = z.object({
+  page: z.string().optional(),
+  limit: z.string().optional(),
+  search: z.string().optional(),
+  sortBy: z.string().optional(),
+  sortOrder: sortOrderSchema.optional(),
+});
+
+export const categoryCreateRouteSchema = z.object({
+  name: trimmedTextSchema(100),
+  type: accountingTypeSchema,
+});
+
+export const categoryUpdateRouteSchema = z.object({
+  name: trimmedTextSchema(100).optional(),
+  type: accountingTypeSchema.optional(),
+});
+
+export const entryFilterSchema = z.object({
+  page: z.string().optional(),
+  limit: z.string().optional(),
+  type: z.enum(["income", "expense", "both"]).optional(),
+  accountId: z.string().optional(),
+  categoryId: z.string().optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+  search: z.string().optional(),
+  sortBy: z.string().optional(),
+  sortOrder: sortOrderSchema.optional(),
+});
+
+export const entryCreateRouteSchema = z.object({
+  type: accountingTypeSchema,
+  accountId: uuidSchema,
+  categoryId: uuidSchema,
+  amount: positiveNumberSchema,
+  entryDate: dateStringSchema,
+  remarks: z.string().optional(),
+});
+
+export const entryUpdateRouteSchema = z.object({
+  type: accountingTypeSchema.optional(),
+  accountId: uuidSchema.optional(),
+  categoryId: uuidSchema.optional(),
+  amount: positiveNumberSchema.optional(),
+  entryDate: dateStringSchema.optional(),
+  remarks: z.string().nullable().optional(),
+});
+
+export const exportAccountsSchema = pagedAccountFilterSchema.pick({
+  search: true,
+  status: true,
+  sortBy: true,
+  sortOrder: true,
+});
+
+export const exportCategoriesSchema = z.object({
+  search: z.string().optional(),
+  type: z.enum(["income", "expense", "all"]).optional(),
+  sortBy: z.string().optional(),
+  sortOrder: sortOrderSchema.optional(),
+});
+
+export const entrySummaryFilterSchema = entryFilterSchema.pick({
+  type: true,
+  accountId: true,
+  categoryId: true,
+  dateFrom: true,
+  dateTo: true,
+  search: true,
 });
 
 export const updateEntrySchema = z.object({
