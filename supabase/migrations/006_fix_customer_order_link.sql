@@ -40,9 +40,11 @@ SET order_id = o.id
 FROM orders o
 WHERE o.customer_id = c.id
   AND o.id = (
-    SELECT MIN(o2.id)
+    SELECT o2.id
     FROM orders o2
     WHERE o2.customer_id = c.id
+    ORDER BY o2.created_at ASC, o2.id ASC
+    LIMIT 1
   );
 
 INSERT INTO customers (couple_name, contact_number, email, order_id, created_at, updated_at)
@@ -56,9 +58,11 @@ SELECT
 FROM orders o
 JOIN customers c ON o.customer_id = c.id
 WHERE o.id <> (
-  SELECT MIN(o2.id)
+  SELECT o2.id
   FROM orders o2
   WHERE o2.customer_id = o.customer_id
+  ORDER BY o2.created_at ASC, o2.id ASC
+  LIMIT 1
 );
 
 UPDATE orders o
