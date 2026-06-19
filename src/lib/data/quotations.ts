@@ -4,18 +4,79 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRoleOrThrow } from "@/lib/auth/require-role";
 import type { Quotation, InvoiceType } from "@/types/database";
 
-export async function getQuotations(): Promise<Quotation[]> {
+export interface QuotationFilters {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  budget?: string;
+  functions?: string;
+  dateStart?: string;
+  dateEnd?: string;
+}
+
+const MAX_PAGE_SIZE = 100;
+const POSTGREST_OR_RESERVED_CHARS = /[%_.,()]/g;
+
+function normalizePage(value?: number) {
+  return Math.max(1, Number.isFinite(value ?? NaN) ? Number(value) : 1);
+}
+
+function normalizeLimit(value?: number) {
+  if (!Number.isFinite(value ?? NaN)) return 20;
+  return Math.min(MAX_PAGE_SIZE, Math.max(1, Number(value)));
+}
+
+function sanitizePostgrestSearch(value?: string) {
+  const cleaned = value?.trim().replace(POSTGREST_OR_RESERVED_CHARS, " ").replace(/\s+/g, " ");
+  return cleaned && cleaned.length >= 2 ? cleaned.slice(0, 80) : undefined;
+}
+
+export async function getQuotations(filters: QuotationFilters = {}): Promise<{ quotations: Quotation[]; count: number }> {
   await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+  const page = normalizePage(filters.page);
+  const limit = normalizeLimit(filters.limit);
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
+  const search = sanitizePostgrestSearch(filters.search);
+
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("quotations")
-    .select("*")
-    .order("created_at", { ascending: false });
+    .select("*", { count: "exact" });
+
+  if (search) {
+    query = query.or(
+      `your_name.ilike.%${search}%,couple_name.ilike.%${search}%,contact_number.ilike.%${search}%,email.ilike.%${search}%,event_location.ilike.%${search}%`
+    );
+  }
+  if (filters.status && filters.status !== "all") {
+    query = query.eq("status", filters.status);
+  }
+  if (filters.budget && filters.budget !== "all") {
+    query = query.eq("budget_range", filters.budget);
+  }
+  if (filters.functions && filters.functions !== "all") {
+    query = query.eq("functions_count", Number(filters.functions));
+  }
+  if (filters.dateStart) {
+    query = query.gte("wedding_date", filters.dateStart);
+  }
+  if (filters.dateEnd) {
+    query = query.lte("wedding_date", filters.dateEnd);
+  }
+
+  const { data, count, error } = await query
+    .order("created_at", { ascending: false })
+    .range(from, to);
 
   if (error) {
     throw new Error(error.message || "Failed to fetch quotations");
   }
-  return (data ?? []) as Quotation[];
+  return {
+    quotations: (data ?? []) as Quotation[],
+    count: count ?? 0,
+  };
 }
 
 export async function getQuotationById(id: string) {

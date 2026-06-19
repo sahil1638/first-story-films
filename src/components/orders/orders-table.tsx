@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { ClickableRow } from "@/components/ui/clickable-row";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, formatCurrency } from "@/lib/utils";
@@ -12,98 +12,89 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Pagination } from "@/components/ui/pagination";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { BUDGET_RANGES } from "@/lib/constants";
 
 interface OrdersTableProps {
   orders: Order[];
+  totalItems: number;
 }
 
-export function OrdersTable({ orders }: OrdersTableProps) {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [paymentFilter, setPaymentFilter] = useState("all");
-  const [billFilter, setBillFilter] = useState("all");
-  const [budgetFilter, setBudgetFilter] = useState("all");
-  const [dateStart, setDateStart] = useState("");
-  const [dateEnd, setDateEnd] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
+export function OrdersTable({ orders, totalItems }: OrdersTableProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const urlPage = Math.max(1, Number(searchParams.get("page")) || 1);
+  const urlSearch = searchParams.get("search") ?? "";
+  const urlStatus = searchParams.get("status") ?? "all";
+  const urlPayment = searchParams.get("payment") ?? "all";
+  const urlBill = searchParams.get("bill") ?? "all";
+  const urlBudget = searchParams.get("budget") ?? "all";
+  const urlDateStart = searchParams.get("dateStart") ?? "";
+  const urlDateEnd = searchParams.get("dateEnd") ?? "";
+
   const ITEMS_PER_PAGE = 20;
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+
+  const [search, setSearch] = useState(urlSearch);
+  const [statusFilter, setStatusFilter] = useState(urlStatus);
+  const [paymentFilter, setPaymentFilter] = useState(urlPayment);
+  const [billFilter, setBillFilter] = useState(urlBill);
+  const [budgetFilter, setBudgetFilter] = useState(urlBudget);
+  const [dateStart, setDateStart] = useState(urlDateStart);
+  const [dateEnd, setDateEnd] = useState(urlDateEnd);
 
   useEffect(() => {
-    setTimeout(() => {
-      setCurrentPage(1);
+    const timer = setTimeout(() => {
+      setSearch(urlSearch);
+      setStatusFilter(urlStatus);
+      setPaymentFilter(urlPayment);
+      setBillFilter(urlBill);
+      setBudgetFilter(urlBudget);
+      setDateStart(urlDateStart);
+      setDateEnd(urlDateEnd);
     }, 0);
-  }, [
-    search,
-    statusFilter,
-    paymentFilter,
-    billFilter,
-    budgetFilter,
-    dateStart,
-    dateEnd,
-  ]);
+    return () => clearTimeout(timer);
+  }, [urlSearch, urlStatus, urlPayment, urlBill, urlBudget, urlDateStart, urlDateEnd]);
 
-  const budgetOptions = useMemo(() => {
-    const unique = Array.from(new Set(orders.map(o => o.budget_range).filter(Boolean)));
-    return [
-      { value: "all", label: "All Budgets" },
-      ...unique.sort().map(b => ({ value: b!, label: b! }))
-    ];
-  }, [orders]);
+  const updateUrl = useCallback((updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
 
-  const filteredOrders = useMemo(() => {
-    return (orders ?? []).filter((o) => {
-      // Search Match
-      const searchLower = search.toLowerCase();
-      const matchesSearch =
-        o.your_name.toLowerCase().includes(searchLower) ||
-        o.couple_name.toLowerCase().includes(searchLower) ||
-        o.contact_number.toLowerCase().includes(searchLower) ||
-        (o.email ?? "").toLowerCase().includes(searchLower) ||
-        o.event_location.toLowerCase().includes(searchLower);
+    if (!Object.hasOwn(updates, "page")) {
+      params.set("page", "1");
+    }
 
-      // Status Match
-      const matchesStatus =
-        statusFilter === "all" || o.status === statusFilter;
-
-      // Payment Status Match
-      const matchesPayment =
-        paymentFilter === "all" || o.payment_status === paymentFilter;
-
-      // Bill Type Match
-      const matchesBill =
-        billFilter === "all" ||
-        (billFilter === "gst" && o.invoice_type === "gst") ||
-        (billFilter === "non_gst" && o.invoice_type !== "gst");
-
-      // Budget Match
-      const matchesBudget =
-        budgetFilter === "all" || o.budget_range === budgetFilter;
-
-      // Date Match
-      const matchesDateStart = !dateStart || o.wedding_date >= dateStart;
-      const matchesDateEnd = !dateEnd || o.wedding_date <= dateEnd;
-
-      return matchesSearch && matchesStatus && matchesPayment && matchesBill && matchesBudget && matchesDateStart && matchesDateEnd;
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === null || value === "all" || value === "") {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
     });
-  }, [orders, search, statusFilter, paymentFilter, billFilter, budgetFilter, dateStart, dateEnd]);
 
-  const totalPages = Math.ceil(filteredOrders.length / ITEMS_PER_PAGE);
+    const qs = params.toString();
+    router.push(qs ? `${pathname}?${qs}` : pathname);
+  }, [pathname, router, searchParams]);
 
-  const displayedOrders = useMemo(() => {
-    return filteredOrders.slice(
-      (currentPage - 1) * ITEMS_PER_PAGE,
-      currentPage * ITEMS_PER_PAGE
-    );
-  }, [filteredOrders, currentPage]);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (search === urlSearch) return;
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => updateUrl({ search }), 400);
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [search, updateUrl, urlSearch]);
 
   const hasActiveFilters =
-    search !== "" ||
-    statusFilter !== "all" ||
-    paymentFilter !== "all" ||
-    billFilter !== "all" ||
-    budgetFilter !== "all" ||
-    dateStart !== "" ||
-    dateEnd !== "";
+    urlSearch !== "" ||
+    urlStatus !== "all" ||
+    urlPayment !== "all" ||
+    urlBill !== "all" ||
+    urlBudget !== "all" ||
+    urlDateStart !== "" ||
+    urlDateEnd !== "";
 
   const clearFilters = () => {
     setSearch("");
@@ -113,7 +104,13 @@ export function OrdersTable({ orders }: OrdersTableProps) {
     setBudgetFilter("all");
     setDateStart("");
     setDateEnd("");
+    router.push(pathname);
   };
+
+  const budgetOptions = [
+    { value: "all", label: "All Budgets" },
+    ...BUDGET_RANGES.map((b) => ({ value: b, label: b })),
+  ];
 
   return (
     <Card className="p-0 md:p-0 overflow-hidden">
@@ -131,13 +128,19 @@ export function OrdersTable({ orders }: OrdersTableProps) {
             label="From Date"
             type="date"
             value={dateStart}
-            onChange={(e) => setDateStart(e.target.value)}
+            onChange={(e) => {
+              setDateStart(e.target.value);
+              updateUrl({ dateStart: e.target.value });
+            }}
           />
           <Input
             label="To Date"
             type="date"
             value={dateEnd}
-            onChange={(e) => setDateEnd(e.target.value)}
+            onChange={(e) => {
+              setDateEnd(e.target.value);
+              updateUrl({ dateEnd: e.target.value });
+            }}
           />
           <Select
             label="Bill Type"
@@ -147,13 +150,19 @@ export function OrdersTable({ orders }: OrdersTableProps) {
               { value: "non_gst", label: "Non-GST" },
             ]}
             value={billFilter}
-            onChange={(e) => setBillFilter(e.target.value)}
+            onChange={(e) => {
+              setBillFilter(e.target.value);
+              updateUrl({ bill: e.target.value });
+            }}
           />
           <Select
             label="Budget"
             options={budgetOptions}
             value={budgetFilter}
-            onChange={(e) => setBudgetFilter(e.target.value)}
+            onChange={(e) => {
+              setBudgetFilter(e.target.value);
+              updateUrl({ budget: e.target.value });
+            }}
           />
           <Select
             label="Payment Status"
@@ -164,7 +173,10 @@ export function OrdersTable({ orders }: OrdersTableProps) {
               { value: "unpaid", label: "Unpaid" },
             ]}
             value={paymentFilter}
-            onChange={(e) => setPaymentFilter(e.target.value)}
+            onChange={(e) => {
+              setPaymentFilter(e.target.value);
+              updateUrl({ payment: e.target.value });
+            }}
           />
           <Select
             label="Status"
@@ -175,7 +187,10 @@ export function OrdersTable({ orders }: OrdersTableProps) {
               { value: "cancelled", label: "Cancelled" },
             ]}
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              updateUrl({ status: e.target.value });
+            }}
           />
           <div className="flex gap-2 shrink-0">
             <Button
@@ -208,7 +223,7 @@ export function OrdersTable({ orders }: OrdersTableProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {displayedOrders.map((o) => (
+            {orders.map((o) => (
               <ClickableRow key={o.id} href={`/orders/${o.id}`} className="hover:bg-stone-50/50 group">
                 <td className="px-4 py-1.5 md:px-5">
                   <span className="font-medium text-amber-700">
@@ -241,17 +256,17 @@ export function OrdersTable({ orders }: OrdersTableProps) {
             ))}
           </tbody>
         </table>
-        {filteredOrders.length === 0 && (
+        {orders.length === 0 && (
           <p className="py-8 text-center text-stone-500">
             {hasActiveFilters ? "No matching orders found." : "No orders yet."}
           </p>
         )}
       </div>
       <Pagination
-        currentPage={currentPage}
+        currentPage={urlPage}
         totalPages={totalPages}
-        onPageChange={setCurrentPage}
-        totalItems={filteredOrders.length}
+        onPageChange={(page) => updateUrl({ page: String(page) })}
+        totalItems={totalItems}
         itemsPerPage={ITEMS_PER_PAGE}
       />
     </Card>

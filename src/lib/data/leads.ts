@@ -16,21 +16,39 @@ export interface LeadFilters {
   dateEnd?: string;
 }
 
+const MAX_PAGE_SIZE = 100;
+const POSTGREST_OR_RESERVED_CHARS = /[%_.,()]/g;
+
+function normalizePage(value?: number) {
+  return Math.max(1, Number.isFinite(value ?? NaN) ? Number(value) : 1);
+}
+
+function normalizeLimit(value?: number) {
+  if (!Number.isFinite(value ?? NaN)) return 20;
+  return Math.min(MAX_PAGE_SIZE, Math.max(1, Number(value)));
+}
+
+function sanitizePostgrestSearch(value?: string) {
+  const cleaned = value?.trim().replace(POSTGREST_OR_RESERVED_CHARS, " ").replace(/\s+/g, " ");
+  return cleaned && cleaned.length >= 2 ? cleaned.slice(0, 80) : undefined;
+}
+
 export async function getLeads(filters: LeadFilters = {}) {
   await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-  const page = Math.max(1, filters.page || 1);
-  const limit = filters.limit || 20;
+  const page = normalizePage(filters.page);
+  const limit = normalizeLimit(filters.limit);
   const from = (page - 1) * limit;
   const to = from + limit - 1;
+  const search = sanitizePostgrestSearch(filters.search);
 
   const supabase = await createClient();
   let query = supabase
     .from("leads")
     .select("*, lead_function_days(*, lead_function_day_services(service_id))", { count: "exact" });
 
-  if (filters.search) {
+  if (search) {
     query = query.or(
-      `your_name.ilike.%${filters.search}%,couple_name.ilike.%${filters.search}%,contact_number.ilike.%${filters.search}%,email.ilike.%${filters.search}%,event_location.ilike.%${filters.search}%`
+      `your_name.ilike.%${search}%,couple_name.ilike.%${search}%,contact_number.ilike.%${search}%,email.ilike.%${search}%,event_location.ilike.%${search}%`
     );
   }
   if (filters.status && filters.status !== "all") {

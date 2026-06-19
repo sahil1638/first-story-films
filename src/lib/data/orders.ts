@@ -6,17 +6,83 @@ import { computePaymentStatus } from "@/lib/utils";
 import type { Order, InvoiceType } from "@/types/database";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export async function getOrders(): Promise<Order[]> {
+export interface OrderFilters {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  payment?: string;
+  bill?: string;
+  budget?: string;
+  dateStart?: string;
+  dateEnd?: string;
+}
+
+const MAX_PAGE_SIZE = 100;
+const POSTGREST_OR_RESERVED_CHARS = /[%_.,()]/g;
+
+function normalizePage(value?: number) {
+  return Math.max(1, Number.isFinite(value ?? NaN) ? Number(value) : 1);
+}
+
+function normalizeLimit(value?: number) {
+  if (!Number.isFinite(value ?? NaN)) return 20;
+  return Math.min(MAX_PAGE_SIZE, Math.max(1, Number(value)));
+}
+
+function sanitizePostgrestSearch(value?: string) {
+  const cleaned = value?.trim().replace(POSTGREST_OR_RESERVED_CHARS, " ").replace(/\s+/g, " ");
+  return cleaned && cleaned.length >= 2 ? cleaned.slice(0, 80) : undefined;
+}
+
+export async function getOrders(filters: OrderFilters = {}): Promise<{ orders: Order[]; count: number }> {
+  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+  const page = normalizePage(filters.page);
+  const limit = normalizeLimit(filters.limit);
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
+  const search = sanitizePostgrestSearch(filters.search);
+
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("orders")
-    .select("*")
-    .order("created_at", { ascending: false });
+    .select("*", { count: "exact" });
+
+  if (search) {
+    query = query.or(
+      `your_name.ilike.%${search}%,couple_name.ilike.%${search}%,contact_number.ilike.%${search}%,email.ilike.%${search}%,event_location.ilike.%${search}%`
+    );
+  }
+  if (filters.status && filters.status !== "all") {
+    query = query.eq("status", filters.status);
+  }
+  if (filters.payment && filters.payment !== "all") {
+    query = query.eq("payment_status", filters.payment);
+  }
+  if (filters.bill && filters.bill !== "all") {
+    query = query.eq("invoice_type", filters.bill);
+  }
+  if (filters.budget && filters.budget !== "all") {
+    query = query.eq("budget_range", filters.budget);
+  }
+  if (filters.dateStart) {
+    query = query.gte("wedding_date", filters.dateStart);
+  }
+  if (filters.dateEnd) {
+    query = query.lte("wedding_date", filters.dateEnd);
+  }
+
+  const { data, count, error } = await query
+    .order("created_at", { ascending: false })
+    .range(from, to);
 
   if (error) {
     throw new Error(error.message || "Failed to fetch orders");
   }
-  return (data ?? []) as Order[];
+  return {
+    orders: (data ?? []) as Order[],
+    count: count ?? 0,
+  };
 }
 
 export async function getOrdersSummaryForCustomers() {

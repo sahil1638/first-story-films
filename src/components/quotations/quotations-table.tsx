@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { ClickableRow } from "@/components/ui/clickable-row";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
@@ -12,90 +12,98 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Pagination } from "@/components/ui/pagination";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { BUDGET_RANGES } from "@/lib/constants";
 
 interface QuotationsTableProps {
   quotations: Quotation[];
+  totalItems: number;
 }
 
-export function QuotationsTable({ quotations }: QuotationsTableProps) {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [budgetFilter, setBudgetFilter] = useState("all");
-  const [functionsFilter, setFunctionsFilter] = useState("all");
-  const [dateStart, setDateStart] = useState("");
-  const [dateEnd, setDateEnd] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
+export function QuotationsTable({ quotations, totalItems }: QuotationsTableProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const urlPage = Math.max(1, Number(searchParams.get("page")) || 1);
+  const urlSearch = searchParams.get("search") ?? "";
+  const urlStatus = searchParams.get("status") ?? "all";
+  const urlBudget = searchParams.get("budget") ?? "all";
+  const urlFunctions = searchParams.get("functions") ?? "all";
+  const urlDateStart = searchParams.get("dateStart") ?? "";
+  const urlDateEnd = searchParams.get("dateEnd") ?? "";
+
   const ITEMS_PER_PAGE = 20;
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+
+  const [search, setSearch] = useState(urlSearch);
+  const [statusFilter, setStatusFilter] = useState(urlStatus);
+  const [budgetFilter, setBudgetFilter] = useState(urlBudget);
+  const [functionsFilter, setFunctionsFilter] = useState(urlFunctions);
+  const [dateStart, setDateStart] = useState(urlDateStart);
+  const [dateEnd, setDateEnd] = useState(urlDateEnd);
 
   useEffect(() => {
-    setTimeout(() => {
-      setCurrentPage(1);
+    const timer = setTimeout(() => {
+      setSearch(urlSearch);
+      setStatusFilter(urlStatus);
+      setBudgetFilter(urlBudget);
+      setFunctionsFilter(urlFunctions);
+      setDateStart(urlDateStart);
+      setDateEnd(urlDateEnd);
     }, 0);
-  }, [search, statusFilter, budgetFilter, functionsFilter, dateStart, dateEnd]);
+    return () => clearTimeout(timer);
+  }, [urlSearch, urlStatus, urlBudget, urlFunctions, urlDateStart, urlDateEnd]);
 
-  const budgetOptions = useMemo(() => {
-    const unique = Array.from(new Set(quotations.map(q => q.budget_range).filter(Boolean)));
-    return [
-      { value: "all", label: "All Budgets" },
-      ...unique.sort().map(b => ({ value: b, label: b }))
-    ];
-  }, [quotations]);
+  const updateUrl = useCallback((updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
 
-  const functionsOptions = useMemo(() => {
-    const unique = Array.from(new Set(quotations.map(q => q.functions_count).filter((f) => f !== null && f !== undefined)));
-    return [
-      { value: "all", label: "All Days" },
-      ...unique.sort((a, b) => a - b).map(f => ({ value: String(f), label: `${f} Day${f !== 1 ? 's' : ''}` }))
-    ];
-  }, [quotations]);
+    if (!Object.hasOwn(updates, "page")) {
+      params.set("page", "1");
+    }
 
-  const filteredQuotations = useMemo(() => {
-    return (quotations ?? []).filter((q) => {
-      // Search Match
-      const searchLower = search.toLowerCase();
-      const matchesSearch =
-        q.your_name.toLowerCase().includes(searchLower) ||
-        q.couple_name.toLowerCase().includes(searchLower) ||
-        q.contact_number.toLowerCase().includes(searchLower) ||
-        (q.email ?? "").toLowerCase().includes(searchLower) ||
-        q.event_location.toLowerCase().includes(searchLower);
-
-      // Status Match
-      const matchesStatus =
-        statusFilter === "all" || q.status === statusFilter;
-
-      // Budget Match
-      const matchesBudget =
-        budgetFilter === "all" || q.budget_range === budgetFilter;
-
-      // Functions Count Match
-      const matchesFunctions =
-        functionsFilter === "all" || String(q.functions_count) === functionsFilter;
-
-      // Date Match
-      const matchesDateStart = !dateStart || q.wedding_date >= dateStart;
-      const matchesDateEnd = !dateEnd || q.wedding_date <= dateEnd;
-
-      return matchesSearch && matchesStatus && matchesBudget && matchesFunctions && matchesDateStart && matchesDateEnd;
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === null || value === "all" || value === "") {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
     });
-  }, [quotations, search, statusFilter, budgetFilter, functionsFilter, dateStart, dateEnd]);
 
-  const totalPages = Math.ceil(filteredQuotations.length / ITEMS_PER_PAGE);
+    const qs = params.toString();
+    router.push(qs ? `${pathname}?${qs}` : pathname);
+  }, [pathname, router, searchParams]);
 
-  const displayedQuotations = useMemo(() => {
-    return filteredQuotations.slice(
-      (currentPage - 1) * ITEMS_PER_PAGE,
-      currentPage * ITEMS_PER_PAGE
-    );
-  }, [filteredQuotations, currentPage]);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (search === urlSearch) return;
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => updateUrl({ search }), 400);
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [search, updateUrl, urlSearch]);
+
+  const budgetOptions = [
+    { value: "all", label: "All Budgets" },
+    ...BUDGET_RANGES.map((b) => ({ value: b, label: b })),
+  ];
+
+  const functionsOptions = [
+    { value: "all", label: "All Days" },
+    ...Array.from({ length: 10 }, (_, i) => ({
+      value: String(i + 1),
+      label: `${i + 1} Day${i !== 0 ? "s" : ""}`,
+    })),
+  ];
 
   const hasActiveFilters =
-    search !== "" ||
-    statusFilter !== "all" ||
-    budgetFilter !== "all" ||
-    functionsFilter !== "all" ||
-    dateStart !== "" ||
-    dateEnd !== "";
+    urlSearch !== "" ||
+    urlStatus !== "all" ||
+    urlBudget !== "all" ||
+    urlFunctions !== "all" ||
+    urlDateStart !== "" ||
+    urlDateEnd !== "";
 
   const clearFilters = () => {
     setSearch("");
@@ -104,6 +112,7 @@ export function QuotationsTable({ quotations }: QuotationsTableProps) {
     setFunctionsFilter("all");
     setDateStart("");
     setDateEnd("");
+    router.push(pathname);
   };
 
   return (
@@ -122,25 +131,37 @@ export function QuotationsTable({ quotations }: QuotationsTableProps) {
             label="From Date"
             type="date"
             value={dateStart}
-            onChange={(e) => setDateStart(e.target.value)}
+            onChange={(e) => {
+              setDateStart(e.target.value);
+              updateUrl({ dateStart: e.target.value });
+            }}
           />
           <Input
             label="To Date"
             type="date"
             value={dateEnd}
-            onChange={(e) => setDateEnd(e.target.value)}
+            onChange={(e) => {
+              setDateEnd(e.target.value);
+              updateUrl({ dateEnd: e.target.value });
+            }}
           />
           <Select
             label="Budget"
             options={budgetOptions}
             value={budgetFilter}
-            onChange={(e) => setBudgetFilter(e.target.value)}
+            onChange={(e) => {
+              setBudgetFilter(e.target.value);
+              updateUrl({ budget: e.target.value });
+            }}
           />
           <Select
             label="Function Days"
             options={functionsOptions}
             value={functionsFilter}
-            onChange={(e) => setFunctionsFilter(e.target.value)}
+            onChange={(e) => {
+              setFunctionsFilter(e.target.value);
+              updateUrl({ functions: e.target.value });
+            }}
           />
           <Select
             label="Status"
@@ -151,7 +172,10 @@ export function QuotationsTable({ quotations }: QuotationsTableProps) {
               { value: "cancelled", label: "Cancelled" },
             ]}
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              updateUrl({ status: e.target.value });
+            }}
           />
           <div className="flex gap-2 shrink-0">
             <Button
@@ -183,7 +207,7 @@ export function QuotationsTable({ quotations }: QuotationsTableProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {displayedQuotations.map((q) => (
+            {quotations.map((q) => (
               <ClickableRow key={q.id} href={`/quotations/${q.id}`} className="hover:bg-stone-50/50 group">
                 <td className="px-4 py-1.5 md:px-5">
                   <span className="font-medium text-amber-700">
@@ -207,17 +231,17 @@ export function QuotationsTable({ quotations }: QuotationsTableProps) {
             ))}
           </tbody>
         </table>
-        {filteredQuotations.length === 0 && (
+        {quotations.length === 0 && (
           <p className="py-8 text-center text-stone-500">
             {hasActiveFilters ? "No matching quotations found." : "No quotations yet. Convert a lead first."}
           </p>
         )}
       </div>
       <Pagination
-        currentPage={currentPage}
+        currentPage={urlPage}
         totalPages={totalPages}
-        onPageChange={setCurrentPage}
-        totalItems={filteredQuotations.length}
+        onPageChange={(page) => updateUrl({ page: String(page) })}
+        totalItems={totalItems}
         itemsPerPage={ITEMS_PER_PAGE}
       />
     </Card>
