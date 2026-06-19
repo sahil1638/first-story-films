@@ -294,6 +294,115 @@ describe("Security Hardening Tests (RLS1, RLS2, RLS3)", () => {
         .eq("id", quotation!.id);
       expect(managerQuotationDeleteError).toBeNull();
     });
+
+    it("enforces the final direct RLS role matrix for public, sales, and manager clients", async () => {
+      if (!requireIntegrationReady()) return;
+
+      const baseRecord = {
+        your_name: "RLS Matrix Test",
+        couple_name: "RLS Matrix Couple",
+        contact_number: "9876543210",
+        email: "rls-matrix@example.com",
+        event_location: "Matrix Location",
+        wedding_date: "2026-06-20",
+        wedding_venue: "Matrix Venue",
+        album_requirement: "yes",
+        drone_requirement: "no",
+        shooting_side: "both",
+        pre_wedding_shoot: "no",
+        functions_count: 1,
+        has_additional_info: false,
+        additional_details: null,
+        budget_range: "50k-100k",
+        created_by: salesUser.id,
+        test_run_id: testRunId,
+        created_by_test: true,
+      };
+
+      const { data: lead, error: leadInsertError } = await adminClient
+        .from("leads")
+        .insert({
+          ...baseRecord,
+          source: "admin_manual",
+          agreement_accepted: true,
+        })
+        .select("id")
+        .single();
+      expect(leadInsertError).toBeNull();
+      expect(lead?.id).toBeDefined();
+
+      const { data: quotation, error: quotationInsertError } = await adminClient
+        .from("quotations")
+        .insert(baseRecord)
+        .select("id")
+        .single();
+      expect(quotationInsertError).toBeNull();
+      expect(quotation?.id).toBeDefined();
+
+      const { data: anonLeadRead, error: anonLeadReadError } = await anonClient
+        .from("leads")
+        .select("id")
+        .eq("id", lead!.id);
+      expect(anonLeadReadError).toBeNull();
+      expect(anonLeadRead).toHaveLength(0);
+
+      const { data: salesLeadRead, error: salesLeadReadError } = await salesClient
+        .from("leads")
+        .select("id")
+        .eq("id", lead!.id);
+      expect(salesLeadReadError).toBeNull();
+      expect(salesLeadRead).toHaveLength(1);
+
+      const { error: salesLeadDeleteError } = await salesClient
+        .from("leads")
+        .delete()
+        .eq("id", lead!.id);
+      expect(salesLeadDeleteError).toBeNull();
+
+      const { data: leadAfterSalesDelete } = await adminClient
+        .from("leads")
+        .select("id")
+        .eq("id", lead!.id)
+        .maybeSingle();
+      expect(leadAfterSalesDelete?.id).toBe(lead!.id);
+
+      const { data: salesQuotationRead, error: salesQuotationReadError } = await salesClient
+        .from("quotations")
+        .select("id")
+        .eq("id", quotation!.id);
+      expect(salesQuotationReadError).toBeNull();
+      expect(salesQuotationRead).toHaveLength(1);
+
+      await salesClient.from("quotations").delete().eq("id", quotation!.id);
+      const { data: quotationAfterSalesDelete } = await adminClient
+        .from("quotations")
+        .select("id")
+        .eq("id", quotation!.id)
+        .maybeSingle();
+      expect(quotationAfterSalesDelete?.id).toBe(quotation!.id);
+
+      const { error: salesMasterInsertError } = await salesClient
+        .from("services")
+        .insert({
+          name: `RLS Matrix Service ${Date.now()}`,
+          status: "active",
+          test_run_id: testRunId,
+          created_by_test: true,
+        });
+      expect(salesMasterInsertError).not.toBeNull();
+
+      const { error: managerLeadDeleteError } = await managerClient
+        .from("leads")
+        .delete()
+        .eq("id", lead!.id);
+      expect(managerLeadDeleteError).toBeNull();
+
+      const { error: managerQuotationDeleteError } = await managerClient
+        .from("quotations")
+        .delete()
+        .eq("id", quotation!.id);
+      expect(managerQuotationDeleteError).toBeNull();
+    });
   });
 
   describe("RLS2: Unauthorized RPC execute fails", () => {

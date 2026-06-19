@@ -28,6 +28,12 @@ export const accountingStatusSchema = z.enum(["active", "inactive"]);
 export const invoiceTypeSchema = z.enum(["gst", "non_gst"]);
 export const sortOrderSchema = z.enum(["asc", "desc"]);
 
+export const leadStatusSchema = z.enum(["pending", "convert_to_quotation", "cancelled"]);
+export const quotationStatusSchema = z.enum(["pending", "convert_to_order", "cancelled"]);
+export const orderStatusSchema = z.enum(["pending", "convert_to_production", "cancelled", "complete"]);
+export const productionJobStatusSchema = z.enum(["pending", "in_progress", "done"]);
+export const paymentStatusSchema = z.enum(["paid", "partial_paid", "unpaid"]);
+
 // User Management schemas
 export const createUserSchema = z.object({
   name: trimmedTextSchema(100),
@@ -338,7 +344,7 @@ export const updateOrderTotalSchema = z.object({
 
 export const updateOrderStatusSchema = z.object({
   id: uuidSchema,
-  status: z.string().trim().min(1),
+  status: orderStatusSchema,
 });
 
 export const updateOrderAgreementContentSchema = z.object({
@@ -381,7 +387,7 @@ export const addProductionJobSchema = z.object({
 
 export const updateProductionJobStatusSchema = z.object({
   jobId: uuidSchema,
-  status: z.string().trim().min(1),
+  status: productionJobStatusSchema,
   orderId: uuidSchema,
 });
 
@@ -391,7 +397,7 @@ export const updateProductionJobSchema = z.object({
   agencyId: uuidSchema,
   serviceId: uuidSchema,
   payableAmount: positiveNumberSchema,
-  status: z.string().trim().min(1),
+  status: productionJobStatusSchema,
 });
 
 export const deleteProductionJobSchema = z.object({
@@ -412,7 +418,7 @@ export const updateOrderBasicSchema = z.object({
     budget_range: z.string().trim().min(1),
     total_amount: nonNegativeNumberSchema,
     invoice_type: invoiceTypeSchema.optional(),
-    status: z.string().trim().optional(),
+    status: orderStatusSchema.optional(),
   }),
 });
 
@@ -445,7 +451,7 @@ export const updateQuotationTermsSchema = z.object({
 
 export const updateQuotationStatusSchema = z.object({
   id: uuidSchema,
-  status: z.string().trim().min(1),
+  status: quotationStatusSchema,
 });
 
 export const convertQuotationToOrderSchema = z.object({
@@ -467,7 +473,7 @@ export const updateQuotationBasicSchema = z.object({
     wedding_date: dateStringSchema,
     wedding_venue: optionalTextSchema(160),
     budget_range: z.string().trim().min(1),
-    status: z.string().trim().optional(),
+    status: quotationStatusSchema.optional(),
     amount: nonNegativeNumberSchema.optional(),
   }),
 });

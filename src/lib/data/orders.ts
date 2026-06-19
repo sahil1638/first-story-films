@@ -5,6 +5,8 @@ import { requireManagerOrAdminOrThrow, requireRoleOrThrow } from "@/lib/auth/req
 import { computePaymentStatus } from "@/lib/utils";
 import type { Order, InvoiceType } from "@/types/database";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { buildIlikeOrFilter, normalizeLimit, normalizePage, sanitizePostgrestSearch } from "@/lib/data/query";
+import { orderStatusSchema, productionJobStatusSchema } from "@/lib/security/schemas";
 
 export interface OrderFilters {
   page?: number;
@@ -18,22 +20,7 @@ export interface OrderFilters {
   dateEnd?: string;
 }
 
-const MAX_PAGE_SIZE = 100;
-const POSTGREST_OR_RESERVED_CHARS = /[%_.,()]/g;
-
-function normalizePage(value?: number) {
-  return Math.max(1, Number.isFinite(value ?? NaN) ? Number(value) : 1);
-}
-
-function normalizeLimit(value?: number) {
-  if (!Number.isFinite(value ?? NaN)) return 20;
-  return Math.min(MAX_PAGE_SIZE, Math.max(1, Number(value)));
-}
-
-function sanitizePostgrestSearch(value?: string) {
-  const cleaned = value?.trim().replace(POSTGREST_OR_RESERVED_CHARS, " ").replace(/\s+/g, " ");
-  return cleaned && cleaned.length >= 2 ? cleaned.slice(0, 80) : undefined;
-}
+const ORDER_SEARCH_COLUMNS = ["your_name", "couple_name", "contact_number", "email", "event_location"];
 
 export async function getOrders(filters: OrderFilters = {}): Promise<{ orders: Order[]; count: number }> {
   await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
@@ -49,9 +36,7 @@ export async function getOrders(filters: OrderFilters = {}): Promise<{ orders: O
     .select("*", { count: "exact" });
 
   if (search) {
-    query = query.or(
-      `your_name.ilike.%${search}%,couple_name.ilike.%${search}%,contact_number.ilike.%${search}%,email.ilike.%${search}%,event_location.ilike.%${search}%`
-    );
+    query = query.or(buildIlikeOrFilter(ORDER_SEARCH_COLUMNS, search));
   }
   if (filters.status && filters.status !== "all") {
     query = query.eq("status", filters.status);
@@ -199,6 +184,7 @@ export async function updateOrderTotal(orderId: string, totalAmount: number) {
 
 export async function updateOrderStatus(id: string, status: string) {
   await requireManagerOrAdminOrThrow();
+  const parsedStatus = orderStatusSchema.parse(status);
   const supabase = await createClient();
 
   const { data: order, error: fetchError } = await supabase
@@ -209,11 +195,11 @@ export async function updateOrderStatus(id: string, status: string) {
 
   if (fetchError) throw new Error(fetchError.message);
 
-  const { error } = await supabase.from("orders").update({ status }).eq("id", id);
+  const { error } = await supabase.from("orders").update({ status: parsedStatus }).eq("id", id);
   if (error) throw new Error(error.message);
 
   if (order?.quotation_id) {
-    const quotationStatus = status === "cancelled" ? "cancelled" : "convert_to_order";
+    const quotationStatus = parsedStatus === "cancelled" ? "cancelled" : "convert_to_order";
     const { error: quoteError } = await supabase
       .from("quotations")
       .update({ status: quotationStatus })
@@ -355,10 +341,11 @@ export async function updateProductionJobStatus(
 ) {
   void _orderId;
   await requireManagerOrAdminOrThrow();
+  const parsedStatus = productionJobStatusSchema.parse(status);
   const supabase = await createClient();
   const { error } = await supabase
     .from("production_jobs")
-    .update({ status })
+    .update({ status: parsedStatus })
     .eq("id", jobId);
   if (error) throw new Error(error.message);
 }
@@ -372,6 +359,7 @@ export async function updateProductionJob(
   status: string
 ) {
   await requireManagerOrAdminOrThrow();
+  const parsedStatus = productionJobStatusSchema.parse(status);
   if (!agencyId || !serviceId) {
     throw new Error("Select agency and service");
   }
@@ -386,7 +374,7 @@ export async function updateProductionJob(
     agency_id: agencyId,
     service_id: serviceId,
     payable_amount: payableAmount,
-    status: status,
+    status: parsedStatus,
   });
 
   if (error) throw new Error(error.message);
@@ -457,7 +445,7 @@ export async function updateOrderBasic(
   };
 
   if (data.status) {
-    updatePayload.status = data.status;
+    updatePayload.status = orderStatusSchema.parse(data.status);
   }
 
   const { error } = await supabase
@@ -479,7 +467,8 @@ export async function updateOrderBasic(
     };
 
     if (data.status) {
-      quotationPayload.status = data.status === "cancelled" ? "cancelled" : "convert_to_order";
+      const parsedStatus = orderStatusSchema.parse(data.status);
+      quotationPayload.status = parsedStatus === "cancelled" ? "cancelled" : "convert_to_order";
     }
 
     const { error: quoteError } = await supabase

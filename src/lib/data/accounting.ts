@@ -45,6 +45,13 @@ export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
 export const EXPORT_ROW_LIMIT = 1000;
 
+const POSTGREST_OR_RESERVED_CHARS = /[%_.,()]/g;
+
+function sanitizePostgrestSearch(value?: string) {
+  const cleaned = value?.trim().replace(POSTGREST_OR_RESERVED_CHARS, " ").replace(/\s+/g, " ");
+  return cleaned && cleaned.length >= 2 ? cleaned.slice(0, 80) : undefined;
+}
+
 type AccountingCascadeResult = {
   out_order_id: string | null;
   out_source: string | null;
@@ -93,8 +100,9 @@ function buildEntryQuery<T extends {
   if (filters.categoryId) {
     q = q.eq("category_id", filters.categoryId);
   }
-  if (filters.search) {
-    q = q.ilike("remarks", `%${filters.search}%`);
+  const search = sanitizePostgrestSearch(filters.search);
+  if (search) {
+    q = q.ilike("remarks", `%${search}%`);
   }
   if (filters.dateFrom) {
     q = q.gte("entry_date", filters.dateFrom);
@@ -159,13 +167,14 @@ export async function getEntries(filters: EntryFilterParams = {}) {
 export async function getEntriesSummary(filters: EntryFilterParams = {}) {
   await requireManagerOrAdminOrThrow();
   const supabase = await createClient();
+  const search = sanitizePostgrestSearch(filters.search);
   const { data, error } = await supabase.rpc("get_accounting_entries_summary", {
     p_type: filters.type && filters.type !== "both" ? filters.type : null,
     p_account_id: filters.accountId || null,
     p_category_id: filters.categoryId || null,
     p_date_from: filters.dateFrom || null,
     p_date_to: filters.dateTo || null,
-    p_search: filters.search || null,
+    p_search: search || null,
   });
   if (error) throw new Error(error.message);
   const summary = Array.isArray(data) ? data[0] : data;
@@ -296,8 +305,9 @@ export async function getAccounts(filters: AccountFilterParams = {}) {
   const pagination = normalizePagination(filters.page, filters.limit, filters.maxLimit);
   let query = supabase.from("accounting_accounts_with_balances").select("*", { count: "exact" });
 
-  if (filters.search) {
-    query = query.ilike("name", `%${filters.search}%`);
+  const search = sanitizePostgrestSearch(filters.search);
+  if (search) {
+    query = query.ilike("name", `%${search}%`);
   }
   const status = normalizeStatus(filters.status);
   if (status) query = query.eq("status", status);
@@ -411,7 +421,8 @@ export async function getCategories(filters: CategoryFilterParams = {}) {
   const supabase = await createClient();
   const pagination = normalizePagination(filters.page, filters.limit, filters.maxLimit);
   let query = supabase.from("accounting_categories").select("*", { count: "exact" });
-  if (filters.search) query = query.ilike("name", `%${filters.search}%`);
+  const search = sanitizePostgrestSearch(filters.search);
+  if (search) query = query.ilike("name", `%${search}%`);
   if (filters.type && filters.type !== "all") query = query.eq("type", filters.type);
   const status = normalizeStatus(filters.status);
   if (status) query = query.eq("status", status);

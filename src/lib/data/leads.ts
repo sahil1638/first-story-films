@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRoleOrThrow, requireManagerOrAdminOrThrow } from "@/lib/auth/require-role";
 import type { Lead } from "@/types/database";
 import type { LeadFormInput, FunctionDayInput } from "@/lib/actions/leads";
+import { buildIlikeOrFilter, normalizeLimit, normalizePage, sanitizePostgrestSearch } from "@/lib/data/query";
+import { leadStatusSchema } from "@/lib/security/schemas";
 
 export interface LeadFilters {
   page?: number;
@@ -16,22 +18,7 @@ export interface LeadFilters {
   dateEnd?: string;
 }
 
-const MAX_PAGE_SIZE = 100;
-const POSTGREST_OR_RESERVED_CHARS = /[%_.,()]/g;
-
-function normalizePage(value?: number) {
-  return Math.max(1, Number.isFinite(value ?? NaN) ? Number(value) : 1);
-}
-
-function normalizeLimit(value?: number) {
-  if (!Number.isFinite(value ?? NaN)) return 20;
-  return Math.min(MAX_PAGE_SIZE, Math.max(1, Number(value)));
-}
-
-function sanitizePostgrestSearch(value?: string) {
-  const cleaned = value?.trim().replace(POSTGREST_OR_RESERVED_CHARS, " ").replace(/\s+/g, " ");
-  return cleaned && cleaned.length >= 2 ? cleaned.slice(0, 80) : undefined;
-}
+const LEAD_SEARCH_COLUMNS = ["your_name", "couple_name", "contact_number", "email", "event_location"];
 
 export async function getLeads(filters: LeadFilters = {}) {
   await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
@@ -47,9 +34,7 @@ export async function getLeads(filters: LeadFilters = {}) {
     .select("*, lead_function_days(*, lead_function_day_services(service_id))", { count: "exact" });
 
   if (search) {
-    query = query.or(
-      `your_name.ilike.%${search}%,couple_name.ilike.%${search}%,contact_number.ilike.%${search}%,email.ilike.%${search}%,event_location.ilike.%${search}%`
-    );
+    query = query.or(buildIlikeOrFilter(LEAD_SEARCH_COLUMNS, search));
   }
   if (filters.status && filters.status !== "all") {
     query = query.eq("status", filters.status);
@@ -238,8 +223,9 @@ export async function updateLead(id: string, input: LeadFormInput) {
 
 export async function updateLeadStatus(id: string, status: string) {
   await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+  const parsedStatus = leadStatusSchema.parse(status);
   const supabase = await createClient();
-  const { error } = await supabase.from("leads").update({ status }).eq("id", id);
+  const { error } = await supabase.from("leads").update({ status: parsedStatus }).eq("id", id);
   if (error) throw new Error(error.message);
 }
 

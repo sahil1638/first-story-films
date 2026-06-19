@@ -3,6 +3,8 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { requireRoleOrThrow } from "@/lib/auth/require-role";
 import type { Quotation, InvoiceType } from "@/types/database";
+import { buildIlikeOrFilter, normalizeLimit, normalizePage, sanitizePostgrestSearch } from "@/lib/data/query";
+import { quotationStatusSchema } from "@/lib/security/schemas";
 
 export interface QuotationFilters {
   page?: number;
@@ -15,22 +17,7 @@ export interface QuotationFilters {
   dateEnd?: string;
 }
 
-const MAX_PAGE_SIZE = 100;
-const POSTGREST_OR_RESERVED_CHARS = /[%_.,()]/g;
-
-function normalizePage(value?: number) {
-  return Math.max(1, Number.isFinite(value ?? NaN) ? Number(value) : 1);
-}
-
-function normalizeLimit(value?: number) {
-  if (!Number.isFinite(value ?? NaN)) return 20;
-  return Math.min(MAX_PAGE_SIZE, Math.max(1, Number(value)));
-}
-
-function sanitizePostgrestSearch(value?: string) {
-  const cleaned = value?.trim().replace(POSTGREST_OR_RESERVED_CHARS, " ").replace(/\s+/g, " ");
-  return cleaned && cleaned.length >= 2 ? cleaned.slice(0, 80) : undefined;
-}
+const QUOTATION_SEARCH_COLUMNS = ["your_name", "couple_name", "contact_number", "email", "event_location"];
 
 export async function getQuotations(filters: QuotationFilters = {}): Promise<{ quotations: Quotation[]; count: number }> {
   await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
@@ -46,9 +33,7 @@ export async function getQuotations(filters: QuotationFilters = {}): Promise<{ q
     .select("*", { count: "exact" });
 
   if (search) {
-    query = query.or(
-      `your_name.ilike.%${search}%,couple_name.ilike.%${search}%,contact_number.ilike.%${search}%,email.ilike.%${search}%,event_location.ilike.%${search}%`
-    );
+    query = query.or(buildIlikeOrFilter(QUOTATION_SEARCH_COLUMNS, search));
   }
   if (filters.status && filters.status !== "all") {
     query = query.eq("status", filters.status);
@@ -175,8 +160,9 @@ export async function updateQuotationTerms(
 
 export async function updateQuotationStatus(id: string, status: string) {
   await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
+  const parsedStatus = quotationStatusSchema.parse(status);
   const supabase = await createClient();
-  const { error } = await supabase.from("quotations").update({ status }).eq("id", id);
+  const { error } = await supabase.from("quotations").update({ status: parsedStatus }).eq("id", id);
   if (error) throw new Error(error.message);
 
   const { data: order, error: orderFetchError } = await supabase
@@ -188,7 +174,7 @@ export async function updateQuotationStatus(id: string, status: string) {
   if (orderFetchError) throw new Error(orderFetchError.message);
 
   if (order) {
-    const orderStatus = status === "cancelled" ? "cancelled" : "pending";
+    const orderStatus = parsedStatus === "cancelled" ? "cancelled" : "pending";
     const { error: orderError } = await supabase
       .from("orders")
       .update({ status: orderStatus })

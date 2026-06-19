@@ -25,9 +25,6 @@ import {
   updateQuotationBasic as dalUpdateQuotationBasic,
 } from "@/lib/data/quotations";
 
-const VALID_QUOTATION_STATUSES = ["pending", "convert_to_order", "cancelled"] as const;
-type ValidQuotationStatus = (typeof VALID_QUOTATION_STATUSES)[number];
-
 export async function updateQuotationDeliverables(
   quotationId: string,
   deliverableIds: string[],
@@ -103,9 +100,6 @@ export async function updateQuotationStatus(id: string, status: string) {
   return withSafeError(async () => {
     const parsed = updateQuotationStatusSchema.parse({ id, status });
     await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
-    if (!VALID_QUOTATION_STATUSES.includes(parsed.status as ValidQuotationStatus)) {
-      throw new Error("Invalid quotation status");
-    }
 
     await dalUpdateQuotationStatus(parsed.id, parsed.status);
 
