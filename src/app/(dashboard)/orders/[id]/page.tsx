@@ -68,7 +68,7 @@ export default async function OrderDetailPage({
     events,
     agreementVal,
   ] = await Promise.all([
-    getAgencies(),
+    userRole !== "sales" ? getAgencies() : Promise.resolve([]),
     getServices(),
     getCrewMembers(),
     userRole !== "sales" ? getProductionJobsByOrderId(id) : Promise.resolve([]),

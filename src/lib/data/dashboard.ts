@@ -118,7 +118,15 @@ export async function getDashboardData() {
     totalIncome: Number(totals.total_income),
     totalExpense: Number(totals.total_expense),
     upcomingShoots: upcomingShootsRes.data || [],
-    receivables: (receivablesRes.data || []).map((r: any) => ({
+    receivables: (receivablesRes.data || []).map((r: {
+      id: string;
+      couple_name: string;
+      created_at: string;
+      paid_amount: number;
+      total_amount: number;
+      outstanding_amount: number;
+      paid_percent: number;
+    }) => ({
       id: r.id,
       couple_name: r.couple_name,
       created_at: r.created_at,

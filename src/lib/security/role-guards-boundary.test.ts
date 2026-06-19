@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -19,6 +20,15 @@ import {
   getOrderById,
   getPaymentsByOrderId,
 } from "@/lib/data/orders";
+import {
+  getServices,
+  getEvents,
+  getDeliverables,
+  getAgencies,
+  getCrewMembers,
+  getSettings,
+  getSettingByKey,
+} from "@/lib/data/masters";
 
 vi.mock("@/lib/data/users", () => ({
   getCurrentUserProfile: vi.fn(),
@@ -31,6 +41,7 @@ vi.mock("@/lib/supabase/server", () => {
     order: vi.fn().mockReturnThis(),
     range: vi.fn().mockReturnThis(),
     single: vi.fn().mockResolvedValue({ data: {}, error: null }),
+    maybeSingle: vi.fn().mockResolvedValue({ data: {}, error: null }),
     then: (resolve: any) => resolve({ data: [], error: null }),
   };
   const mockSupabase = {
@@ -142,6 +153,45 @@ describe("Role Guards Boundary and Behavior (Issue AU2)", () => {
       vi.mocked(getCurrentUserProfile).mockResolvedValue({ role: "crew", id: "4" } as any);
       await expect(getOrderById("order-1")).rejects.toThrow("Sales access required");
       await expect(getPaymentsByOrderId("order-1")).rejects.toThrow("Sales access required");
+    });
+  });
+
+  describe("Masters and Settings Reads Role Guards (Issue SEC-03)", () => {
+    it("should allow admin, manager, or sales to read services, events, deliverables, crew, and settings, but throw for crew", async () => {
+      for (const role of ["admin", "manager", "sales"] as const) {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue({ role, id: "1" } as any);
+        await expect(getServices()).resolves.not.toThrow();
+        await expect(getEvents()).resolves.not.toThrow();
+        await expect(getDeliverables()).resolves.not.toThrow();
+        await expect(getCrewMembers()).resolves.not.toThrow();
+        await expect(getSettings()).resolves.not.toThrow();
+        await expect(getSettingByKey("test")).resolves.not.toThrow();
+      }
+
+      // Crew throws
+      vi.mocked(getCurrentUserProfile).mockResolvedValue({ role: "crew", id: "2" } as any);
+      await expect(getServices()).rejects.toThrow("Access denied");
+      await expect(getEvents()).rejects.toThrow("Access denied");
+      await expect(getDeliverables()).rejects.toThrow("Access denied");
+      await expect(getCrewMembers()).rejects.toThrow("Access denied");
+      await expect(getSettings()).rejects.toThrow("Access denied");
+      await expect(getSettingByKey("test")).rejects.toThrow("Access denied");
+    });
+
+    it("should allow only admin or manager to read agencies, but throw for sales or crew", async () => {
+      // Admin/Manager pass
+      for (const role of ["admin", "manager"] as const) {
+        vi.mocked(getCurrentUserProfile).mockResolvedValue({ role, id: "1" } as any);
+        await expect(getAgencies()).resolves.not.toThrow();
+      }
+
+      // Sales throws
+      vi.mocked(getCurrentUserProfile).mockResolvedValue({ role: "sales", id: "2" } as any);
+      await expect(getAgencies()).rejects.toThrow("Manager or admin access required");
+
+      // Crew throws
+      vi.mocked(getCurrentUserProfile).mockResolvedValue({ role: "crew", id: "3" } as any);
+      await expect(getAgencies()).rejects.toThrow("Manager or admin access required");
     });
   });
 });

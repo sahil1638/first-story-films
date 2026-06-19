@@ -13,18 +13,6 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { getDashboardData } from "@/lib/data/dashboard";
 
-type OrderRow = {
-  id: string;
-  couple_name: string;
-  event_location: string | null;
-  status: string;
-  payment_status: string;
-  total_amount: number | string | null;
-  paid_amount: number | string | null;
-  wedding_date: string;
-  created_at: string;
-};
-
 type AccountingEntryRow = {
   id: string;
   type: "income" | "expense";
@@ -407,12 +395,6 @@ function getCashflowTrend(entries: AccountingEntryRow[]) {
 function getAxisLabels(maxValue: number) {
   const labels = [maxValue, maxValue * 0.75, maxValue * 0.5, maxValue * 0.25, 0];
   return labels.map((value) => compactAmount(value));
-}
-
-function isOnOrAfterToday(date: string) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return new Date(`${date}T00:00:00`).getTime() >= today.getTime();
 }
 
 function monthKey(date: Date) {
