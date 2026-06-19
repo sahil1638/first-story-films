@@ -71,7 +71,7 @@ export default async function OrderDetailPage({
     getAgencies(),
     getServices(),
     getCrewMembers(),
-    getProductionJobsByOrderId(id),
+    userRole !== "sales" ? getProductionJobsByOrderId(id) : Promise.resolve([]),
     getPaymentsByOrderId(id),
     order.quotation_id ? getQuotationById(order.quotation_id) : Promise.resolve(null),
     getEvents(),

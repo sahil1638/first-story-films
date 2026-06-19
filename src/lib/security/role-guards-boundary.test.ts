@@ -13,10 +13,33 @@ import eslintConfig from "../../../eslint.config.mjs";
 import { requireRoleOrThrow } from "@/lib/auth/enforce-role";
 import { requireRole } from "@/lib/auth/ui-guards";
 import { getCurrentUserProfile } from "@/lib/data/users";
+import {
+  getOrdersSummaryForCustomers,
+  getProductionJobsByOrderId,
+  getOrderById,
+  getPaymentsByOrderId,
+} from "@/lib/data/orders";
 
 vi.mock("@/lib/data/users", () => ({
   getCurrentUserProfile: vi.fn(),
 }));
+
+vi.mock("@/lib/supabase/server", () => {
+  const chain = {
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    order: vi.fn().mockReturnThis(),
+    range: vi.fn().mockReturnThis(),
+    single: vi.fn().mockResolvedValue({ data: {}, error: null }),
+    then: (resolve: any) => resolve({ data: [], error: null }),
+  };
+  const mockSupabase = {
+    from: vi.fn(() => chain),
+  };
+  return {
+    createClient: vi.fn().mockResolvedValue(mockSupabase),
+  };
+});
 
 interface RestrictedImportPath {
   name: string;
@@ -74,5 +97,51 @@ describe("Role Guards Boundary and Behavior (Issue AU2)", () => {
     await expect(requireRole(["admin"])).rejects.toThrow("NEXT_REDIRECT");
 
     expect(redirect).toHaveBeenCalledWith("/login");
+  });
+
+  describe("Orders DAL Reads Role Guards (Issue A1)", () => {
+    it("should allow admin or manager to access getOrdersSummaryForCustomers and getProductionJobsByOrderId, but throw for sales or crew", async () => {
+      // 1. Admin passes
+      vi.mocked(getCurrentUserProfile).mockResolvedValue({ role: "admin", id: "1" } as any);
+      await expect(getOrdersSummaryForCustomers()).resolves.not.toThrow();
+      await expect(getProductionJobsByOrderId("order-1")).resolves.not.toThrow();
+
+      // 2. Manager passes
+      vi.mocked(getCurrentUserProfile).mockResolvedValue({ role: "manager", id: "2" } as any);
+      await expect(getOrdersSummaryForCustomers()).resolves.not.toThrow();
+      await expect(getProductionJobsByOrderId("order-1")).resolves.not.toThrow();
+
+      // 3. Sales throws
+      vi.mocked(getCurrentUserProfile).mockResolvedValue({ role: "sales", id: "3" } as any);
+      await expect(getOrdersSummaryForCustomers()).rejects.toThrow("Manager or admin access required");
+      await expect(getProductionJobsByOrderId("order-1")).rejects.toThrow("Manager or admin access required");
+
+      // 4. Crew throws
+      vi.mocked(getCurrentUserProfile).mockResolvedValue({ role: "crew", id: "4" } as any);
+      await expect(getOrdersSummaryForCustomers()).rejects.toThrow("Manager or admin access required");
+      await expect(getProductionJobsByOrderId("order-1")).rejects.toThrow("Manager or admin access required");
+    });
+
+    it("should allow admin, manager, or sales to access getOrderById and getPaymentsByOrderId, but throw for crew", async () => {
+      // 1. Admin passes
+      vi.mocked(getCurrentUserProfile).mockResolvedValue({ role: "admin", id: "1" } as any);
+      await expect(getOrderById("order-1")).resolves.not.toThrow();
+      await expect(getPaymentsByOrderId("order-1")).resolves.not.toThrow();
+
+      // 2. Manager passes
+      vi.mocked(getCurrentUserProfile).mockResolvedValue({ role: "manager", id: "2" } as any);
+      await expect(getOrderById("order-1")).resolves.not.toThrow();
+      await expect(getPaymentsByOrderId("order-1")).resolves.not.toThrow();
+
+      // 3. Sales passes
+      vi.mocked(getCurrentUserProfile).mockResolvedValue({ role: "sales", id: "3" } as any);
+      await expect(getOrderById("order-1")).resolves.not.toThrow();
+      await expect(getPaymentsByOrderId("order-1")).resolves.not.toThrow();
+
+      // 4. Crew throws
+      vi.mocked(getCurrentUserProfile).mockResolvedValue({ role: "crew", id: "4" } as any);
+      await expect(getOrderById("order-1")).rejects.toThrow("Sales access required");
+      await expect(getPaymentsByOrderId("order-1")).rejects.toThrow("Sales access required");
+    });
   });
 });

@@ -86,6 +86,7 @@ export async function getOrders(filters: OrderFilters = {}): Promise<{ orders: O
 }
 
 export async function getOrdersSummaryForCustomers() {
+  await requireRoleOrThrow(["admin", "manager"], "Manager or admin access required");
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("orders")
@@ -99,6 +100,7 @@ export async function getOrdersSummaryForCustomers() {
 }
 
 export async function getOrderById(id: string) {
+  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("orders")
@@ -113,6 +115,7 @@ export async function getOrderById(id: string) {
 }
 
 export async function getProductionJobsByOrderId(orderId: string) {
+  await requireRoleOrThrow(["admin", "manager"], "Manager or admin access required");
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("production_jobs")
@@ -126,6 +129,7 @@ export async function getProductionJobsByOrderId(orderId: string) {
 }
 
 export async function getPaymentsByOrderId(orderId: string) {
+  await requireRoleOrThrow(["admin", "manager", "sales"], "Sales access required");
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("payments")
