@@ -48,4 +48,13 @@ jobs:
 
       - name: Supabase Auth config audit
         run: npm run audit:supabase-auth
+
+      - name: Tests
+        run: npm run test:ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E Tests
+        run: npm run test:e2e
         
