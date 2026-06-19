@@ -1,23 +1,32 @@
 import type { NextConfig } from "next";
 
+function getOrigin(url: string | undefined): string {
+  if (!url) return "";
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "";
+  }
+}
+
 const isDev = process.env.NODE_ENV === "development";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseOrigin = supabaseUrl ? new URL(supabaseUrl).origin : "";
-const supabaseWsOrigin = supabaseOrigin.replace(/^https:/, "wss:");
+const supabaseOrigin = getOrigin(supabaseUrl);
+const supabaseWsOrigin = supabaseOrigin ? supabaseOrigin.replace(/^https:/, "wss:") : "";
 
 const cspHeader = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  ["img-src 'self' data: blob:", supabaseOrigin].filter(Boolean).join(" "),
   "font-src 'self' data:",
   ["connect-src 'self'", supabaseOrigin, supabaseWsOrigin].filter(Boolean).join(" "),
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
-  "upgrade-insecure-requests",
-].join("; ");
+  isDev ? "" : "upgrade-insecure-requests",
+].filter(Boolean).join("; ");
 
 const securityHeaders = [
   { key: "Content-Security-Policy", value: cspHeader },
