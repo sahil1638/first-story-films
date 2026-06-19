@@ -219,6 +219,81 @@ describe("Security Hardening Tests (RLS1, RLS2, RLS3)", () => {
         await adminUpdateUserRole(managerUser.id, "manager");
       }
     });
+
+    it("sales cannot directly delete leads or quotations through RLS", async () => {
+      if (!requireIntegrationReady()) return;
+
+      const baseRecord = {
+        your_name: "RLS Delete Test",
+        couple_name: "RLS Couple",
+        contact_number: "9876543210",
+        email: "rls-delete@example.com",
+        event_location: "Test Location",
+        wedding_date: "2026-06-20",
+        wedding_venue: "Test Venue",
+        album_requirement: "yes",
+        drone_requirement: "no",
+        shooting_side: "both",
+        pre_wedding_shoot: "no",
+        functions_count: 1,
+        has_additional_info: false,
+        additional_details: null,
+        budget_range: "50k-100k",
+        created_by: salesUser.id,
+        test_run_id: testRunId,
+        created_by_test: true,
+      };
+
+      const { data: lead, error: leadInsertError } = await adminClient
+        .from("leads")
+        .insert({
+          ...baseRecord,
+          source: "admin_manual",
+          agreement_accepted: true,
+        })
+        .select("id")
+        .single();
+      expect(leadInsertError).toBeNull();
+      expect(lead?.id).toBeDefined();
+
+      await salesClient.from("leads").delete().eq("id", lead!.id);
+
+      const { data: leadAfterSalesDelete } = await adminClient
+        .from("leads")
+        .select("id")
+        .eq("id", lead!.id)
+        .maybeSingle();
+      expect(leadAfterSalesDelete?.id).toBe(lead!.id);
+
+      const { error: managerLeadDeleteError } = await managerClient
+        .from("leads")
+        .delete()
+        .eq("id", lead!.id);
+      expect(managerLeadDeleteError).toBeNull();
+
+      const { data: quotation, error: quotationInsertError } = await adminClient
+        .from("quotations")
+        .insert(baseRecord)
+        .select("id")
+        .single();
+      expect(quotationInsertError).toBeNull();
+      expect(quotation?.id).toBeDefined();
+
+      await salesClient.from("quotations").delete().eq("id", quotation!.id);
+
+      const { data: quotationAfterSalesDelete } = await adminClient
+        .from("quotations")
+        .select("id")
+        .eq("id", quotation!.id)
+        .maybeSingle();
+      expect(quotationAfterSalesDelete?.id).toBe(quotation!.id);
+
+      const { error: managerQuotationDeleteError } = await managerClient
+        .from("quotations")
+        .delete()
+        .eq("id", quotation!.id);
+      expect(managerQuotationDeleteError).toBeNull();
+    });
   });
 
   describe("RLS2: Unauthorized RPC execute fails", () => {
