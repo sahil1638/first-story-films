@@ -130,12 +130,12 @@ const mockQuotation = {
 };
 
 vi.mock("@/lib/data/orders", () => ({
-  getOrderById: vi.fn().mockResolvedValue(mockOrder),
-  getPaymentsByOrderId: vi.fn().mockResolvedValue([]),
+  getOrderById: vi.fn().mockImplementation(async () => mockOrder),
+  getPaymentsByOrderId: vi.fn().mockResolvedValue([{ id: "payment-123", amount: 100, payment_date: "2026-06-12", receipt_number: "REC-123", created_at: "2026-06-12T12:00:00Z" }]),
 }));
 
 vi.mock("@/lib/data/quotations", () => ({
-  getQuotationById: vi.fn().mockResolvedValue(mockQuotation),
+  getQuotationById: vi.fn().mockImplementation(async () => mockQuotation),
 }));
 
 vi.mock("@/lib/data/masters", () => ({
@@ -150,6 +150,9 @@ vi.mock("@/lib/data/masters", () => ({
 vi.mock("@/lib/supabase/server", () => {
   const mockQuotationObj = {
     id: "quotation-123",
+    order_id: "quotation-123",
+    receipt_number: "REC-123",
+    created_at: "2026-06-12T12:00:00Z",
     updated_at: "2026-06-12T12:00:00Z",
     your_name: "John",
     couple_name: "Jane",
@@ -220,6 +223,8 @@ import {
 } from "@/lib/pdf-cache";
 import { checkDbRateLimit } from "@/lib/security/rate-limit";
 import { GET as getQuotationPdf } from "@/app/api/quotations/[id]/pdf/route";
+import { GET as getOrderPdf } from "@/app/api/orders/[id]/pdf/route";
+import { GET as getReceiptPdf } from "@/app/api/orders/[id]/payments/[paymentId]/receipt/pdf/route";
 import { logOperationalEvent } from "@/lib/ops/operational-logger";
 
 const originalNodeEnv = process.env.NODE_ENV;
@@ -511,7 +516,7 @@ describe("PDF Performance & Caching Tests (Issue P1)", () => {
 
       // Mock checkDbRateLimit: user limit (pdf:...) passes, route limit (pdf:route-...) fails
       vi.mocked(checkDbRateLimit).mockImplementation(async (key) => {
-        if (key.startsWith("pdf:route-")) {
+        if (key.startsWith("pdf-route:")) {
           return false;
         }
         return true;
@@ -546,6 +551,45 @@ describe("PDF Performance & Caching Tests (Issue P1)", () => {
       });
 
       expect(response.status).toBe(429);
+    });
+
+    it("should allow quotation PDF generation on cache-miss with valid rate limit check", async () => {
+      // Mock rate limiter to succeed
+      vi.mocked(checkDbRateLimit).mockResolvedValue(true);
+
+      const request = new Request("http://localhost:3000/api/quotations/quotation-123/pdf");
+      const response = await getQuotationPdf(request, {
+        params: Promise.resolve({ id: "quotation-123" }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toBe("application/pdf");
+    });
+
+    it("should allow order PDF generation on cache-miss with valid rate limit check", async () => {
+      // Mock rate limiter to succeed
+      vi.mocked(checkDbRateLimit).mockResolvedValue(true);
+
+      const request = new Request("http://localhost:3000/api/orders/quotation-123/pdf");
+      const response = await getOrderPdf(request, {
+        params: Promise.resolve({ id: "quotation-123" }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toBe("application/pdf");
+    });
+
+    it("should allow receipt PDF generation on cache-miss with valid rate limit check", async () => {
+      // Mock rate limiter to succeed
+      vi.mocked(checkDbRateLimit).mockResolvedValue(true);
+
+      const request = new Request("http://localhost:3000/api/orders/quotation-123/payments/payment-123/receipt/pdf");
+      const response = await getReceiptPdf(request, {
+        params: Promise.resolve({ id: "quotation-123", paymentId: "payment-123" }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toBe("application/pdf");
     });
   });
 });

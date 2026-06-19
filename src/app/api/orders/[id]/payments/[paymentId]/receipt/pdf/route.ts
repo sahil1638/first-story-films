@@ -61,7 +61,7 @@ export async function GET(
   }
 
   // 3. Per-route rate limit (expensive rendering check only on cache miss)
-  const routeAllowed = await checkDbRateLimit(rateLimitKey("pdf", "route-receipts"), {
+  const routeAllowed = await checkDbRateLimit(rateLimitKey("pdf-route", "receipts"), {
     maxTokens: 10,
     refillRatePerSec: 0.5,
     cost: 1.0,

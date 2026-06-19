@@ -434,7 +434,7 @@ describe("Security Hardening Tests (RLS1, RLS2, RLS3)", () => {
 
       // 4. Valid export prefix key
       const { data: ok4, error: err4 } = await adminClient.rpc("check_rate_limit", {
-        limit_key: "export:test-export-ip",
+        limit_key: "pdf-route:test-pdf-route-ip",
         max_tokens: 10,
         refill_rate_per_sec: 2,
         cost: 1,
@@ -450,7 +450,7 @@ describe("Security Hardening Tests (RLS1, RLS2, RLS3)", () => {
           "login:test-user",
           "public-lead:test-ip",
           "pdf:test-pdf-ip",
-          "export:test-export-ip"
+          "pdf-route:test-pdf-route-ip"
         ]);
     });
 
