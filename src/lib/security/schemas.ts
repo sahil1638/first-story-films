@@ -32,7 +32,7 @@ export const sortOrderSchema = z.enum(["asc", "desc"]);
 export const createUserSchema = z.object({
   name: trimmedTextSchema(100),
   email: z.string().trim().email("Invalid email address").max(254),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
   role: userRoleSchema,
 });
 
@@ -271,8 +271,8 @@ export const entryFilterSchema = z.object({
   page: z.string().optional(),
   limit: z.string().optional(),
   type: z.enum(["income", "expense", "both"]).optional(),
-  accountId: z.string().optional(),
-  categoryId: z.string().optional(),
+  accountId: optionalUuidSchema,
+  categoryId: optionalUuidSchema,
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
   search: z.string().optional(),

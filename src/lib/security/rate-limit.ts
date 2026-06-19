@@ -44,7 +44,7 @@ export async function checkDbRateLimit(
   // Bypass PDF rate limiting in local development to avoid blocking developers
   if (
     process.env.NODE_ENV === "development" &&
-    (key.startsWith("pdf:") || key.startsWith("pdf-route:"))
+    key.startsWith("pdf:")
   ) {
     return true;
   }

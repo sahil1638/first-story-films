@@ -32,7 +32,7 @@ export async function GET() {
     }
 
     if (!isAuthorized) {
-      return new NextResponse("Unauthorized", { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const count = await reconcileAllUserRoles();

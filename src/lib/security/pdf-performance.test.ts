@@ -509,9 +509,9 @@ describe("PDF Performance & Caching Tests (Issue P1)", () => {
       const mockBuffer = Buffer.from("Cached Quotation PDF");
       setCachedPdf("quotation:quotation-123", "2026-06-12T12:00:00Z", mockBuffer);
 
-      // Mock checkDbRateLimit: user limit (pdf:...) passes, route limit (pdf-route:...) fails
+      // Mock checkDbRateLimit: user limit (pdf:...) passes, route limit (pdf:route-...) fails
       vi.mocked(checkDbRateLimit).mockImplementation(async (key) => {
-        if (key.startsWith("pdf-route:")) {
+        if (key.startsWith("pdf:route-")) {
           return false;
         }
         return true;

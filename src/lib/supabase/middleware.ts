@@ -4,11 +4,19 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 function isAuthRoute(path: string) {
-  return path.startsWith("/login");
+  return path.startsWith("/login") || path.startsWith("/auth/callback");
 }
 
 function isAuthApiRoute(path: string) {
   return path.startsWith("/api/auth");
+}
+
+function isMaintenanceBearerRoute(path: string) {
+  return path === "/api/maintenance/reconcile";
+}
+
+function isApiRoute(path: string) {
+  return path.startsWith("/api/");
 }
 
 function isPublicRoute(path: string) {
@@ -18,7 +26,8 @@ function isPublicRoute(path: string) {
     path === "/robots.txt" ||
     path === "/sitemap.xml" ||
     isAuthRoute(path) ||
-    isAuthApiRoute(path)
+    isAuthApiRoute(path) ||
+    isMaintenanceBearerRoute(path)
   );
 }
 
@@ -53,6 +62,9 @@ export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
   if (!user && !isPublicRoute(path)) {
+    if (isApiRoute(path)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirect", path);
@@ -73,6 +85,9 @@ export async function updateSession(request: NextRequest) {
       .single();
     const role = (profile?.role ?? null) as UserRole | null;
     if (!role || !canAccess(role, path)) {
+      if (isApiRoute(path)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
       const url = request.nextUrl.clone();
       url.pathname = "/dashboard";
       return NextResponse.redirect(url);
