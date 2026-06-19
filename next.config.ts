@@ -12,16 +12,22 @@ function getOrigin(url: string | undefined): string {
 const isDev = process.env.NODE_ENV === "development";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseOrigin = getOrigin(supabaseUrl);
-const supabaseWsOrigin = supabaseOrigin ? supabaseOrigin.replace(/^https:/, "wss:") : "";
+const supabaseWsOrigin = supabaseOrigin
+  ? supabaseOrigin.replace(/^https:/, "wss:").replace(/^http:/, "ws:")
+  : "";
 
 const cspHeader = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   ["img-src 'self' data: blob:", supabaseOrigin].filter(Boolean).join(" "),
+  ["media-src 'self' data: blob:", supabaseOrigin].filter(Boolean).join(" "),
   "font-src 'self' data:",
   ["connect-src 'self'", supabaseOrigin, supabaseWsOrigin].filter(Boolean).join(" "),
   "object-src 'none'",
+  "frame-src 'none'",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",

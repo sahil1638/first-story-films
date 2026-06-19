@@ -1,0 +1,14 @@
+# Normalize line endings to LF for all text files
+* text=auto eol=lf
+
+# Explicitly mark binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+
+# SVGs are text, ensure they also use LF
+*.svg text eol=lf
