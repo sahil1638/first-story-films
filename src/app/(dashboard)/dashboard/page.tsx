@@ -49,73 +49,27 @@ export default async function DashboardPage() {
     leadsCount,
     quotationsCount,
     ordersCount,
-    orders: rawOrders,
-    accountingEntries: rawAccounting,
-    productionJobs: rawProduction,
+    totalBookings,
+    totalReceivable,
+    totalIncome,
+    totalExpense,
+    upcomingShoots,
+    receivables,
+    recentProductionJobs,
+    accountingEntries,
+    pipeline,
     userRole,
   } = await getDashboardData();
 
   const canSeeProduction = userRole !== "sales";
 
-  const orders = rawOrders as OrderRow[];
-  const activeOrders = orders.filter((order) => order.status !== "cancelled");
-  const accountingEntries = rawAccounting as AccountingEntryRow[];
-  const productionJobs = rawProduction as ProductionJobRow[];
+  const productionJobs = recentProductionJobs as ProductionJobRow[];
 
-  const totalBookings = activeOrders.reduce(
-    (sum, order) => sum + Number(order.total_amount || 0),
-    0
-  );
-  const totalIncome = accountingEntries
-    .filter((entry) => entry.type === "income")
-    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const totalExpense = accountingEntries
-    .filter((entry) => entry.type === "expense")
-    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const cashflowTrend = getCashflowTrend(accountingEntries);
+  const cashflowTrend = getCashflowTrend(accountingEntries as AccountingEntryRow[]);
   const maxCashflow = Math.max(
     ...cashflowTrend.map((month) => Math.max(month.income, month.expense)),
     1
   );
-
-  const receivables = activeOrders
-    .map((order) => {
-      const total = Number(order.total_amount || 0);
-      const paid = Number(order.paid_amount || 0);
-      const outstanding = Math.max(0, total - paid);
-      const paidPercent = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
-      return { ...order, total, paid, outstanding, paidPercent };
-    })
-    .filter((order) => order.outstanding > 0)
-    .sort((a, b) => b.outstanding - a.outstanding);
-  const totalReceivable = receivables.reduce((sum, order) => sum + order.outstanding, 0);
-
-  const upcomingShoots = activeOrders
-    .filter((order) => isOnOrAfterToday(order.wedding_date))
-    .slice(0, 5);
-
-  const pipeline = [
-    {
-      label: "Pending",
-      value: canSeeProduction ? productionJobs.filter((job) => job.status === "pending").length : activeOrders.filter((order) => order.status === "pending").length,
-      className: "border-amber-200 bg-amber-50 text-amber-700",
-    },
-    {
-      label: "In Progress",
-      value: canSeeProduction ? productionJobs.filter((job) => job.status === "in_progress").length : activeOrders.filter((order) => order.status === "convert_to_production").length,
-      className: "border-blue-200 bg-blue-50 text-blue-700",
-    },
-    {
-      label: "Review",
-      value: canSeeProduction ? 0 : activeOrders.filter((order) => order.payment_status === "partial_paid").length,
-      className: "border-purple-200 bg-purple-50 text-purple-700",
-    },
-    {
-      label: "Completed",
-      value: canSeeProduction ? productionJobs.filter((job) => job.status === "done").length : activeOrders.filter((order) => order.status === "complete").length,
-      className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    },
-  ];
 
   const stats = [
     {
