@@ -91,6 +91,16 @@ npm run dev
 5. Set `PDF_CACHE_BACKEND=supabase-storage` and `PDF_RENDER_LOCK_MODE=database` for horizontally scaled deployments
 6. Keep Chromium sandboxing enabled unless the PDF runtime is isolated and you have explicitly acknowledged the production override
 
+## Documentation
+
+- [Route Inventory](./docs/ROUTES.md) - Complete inventory of UI, API, authentication, and PDF routes including parameters, roles, and rate limits.
+- [API Reference](./docs/API.md) - Route Handler reference with payloads, auth requirements, rate limits, and response conventions.
+- [Security Matrix](./docs/SECURITY_MATRIX.md) - Final application role, RLS, and RPC permission matrix.
+- [Incident Response Runbook](./docs/INCIDENT_RESPONSE.md) - Production triage, containment, recovery, and post-incident checklist.
+- [Backup And Restore Procedure](./docs/BACKUP_RESTORE.md) - Backup verification, restore steps, and post-restore validation.
+- [Accessibility Checklist](./docs/ACCESSIBILITY_CHECKLIST.md) - WCAG-oriented release checklist for public and dashboard workflows.
+- [Documentation Review Closure](./docs/DOCUMENTATION_REVIEW.md) - Maps the documentation review gaps to the completed docs.
+
 ## Role access
 
 | Module        | Admin | Manager | Sales |
